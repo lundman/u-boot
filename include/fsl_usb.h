@@ -85,4 +85,16 @@ struct ccsr_usb_phy {
 #define CONFIG_SYS_FSL_USB_SQUELCH_PROG_MASK 0x07
 #endif
 
+/* USB Erratum Checking code */
+#if defined(CONFIG_PPC) || defined(CONFIG_ARM)
+bool has_dual_phy(void);
+bool has_erratum_a006261(void);
+bool has_erratum_a007075(void);
+bool has_erratum_a007798(void);
+bool has_erratum_a007792(void);
+bool has_erratum_a005697(void);
+bool has_erratum_a004477(void);
+bool has_erratum_a008751(void);
+bool has_erratum_a010151(void);
+#endif
 #endif /*_ASM_FSL_USB_H_ */

@@ -7,7 +7,7 @@
  */
 
 #include <common.h>
-#include <asm/errno.h>
+#include <linux/errno.h>
 #include <asm/gpio.h>
 #include <asm/io.h>
 #include <asm/arch/clock.h>
@@ -16,11 +16,11 @@
 #include <asm/arch/iomux.h>
 #include <asm/arch/mxc_hdmi.h>
 #include <asm/arch/sys_proto.h>
-#include <asm/imx-common/boot_mode.h>
-#include <asm/imx-common/iomux-v3.h>
-#include <asm/imx-common/mxc_i2c.h>
-#include <asm/imx-common/sata.h>
-#include <asm/imx-common/video.h>
+#include <asm/mach-imx/boot_mode.h>
+#include <asm/mach-imx/iomux-v3.h>
+#include <asm/mach-imx/mxc_i2c.h>
+#include <asm/mach-imx/sata.h>
+#include <asm/mach-imx/video.h>
 #include <fsl_esdhc.h>
 #include <i2c.h>
 #include <input.h>
@@ -36,11 +36,9 @@
 #include <power/pfuze100_pmic.h>
 #include <stdio_dev.h>
 
-DECLARE_GLOBAL_DATA_PTR;
+#include "novena.h"
 
-#define NOVENA_BUTTON_GPIO	IMX_GPIO_NR(4, 14)
-#define NOVENA_SD_WP		IMX_GPIO_NR(1, 2)
-#define NOVENA_SD_CD		IMX_GPIO_NR(1, 4)
+DECLARE_GLOBAL_DATA_PTR;
 
 /*
  * GPIO button
@@ -79,7 +77,7 @@ int drv_keyboard_init(void)
 	int error;
 	struct stdio_dev dev = {
 		.name	= "button",
-		.flags	= DEV_FLAGS_INPUT | DEV_FLAGS_SYSTEM,
+		.flags	= DEV_FLAGS_INPUT,
 		.start	= novena_gpio_button_init,
 		.getc	= novena_gpio_button_getc,
 		.tstc	= novena_gpio_button_tstc,
@@ -90,6 +88,7 @@ int drv_keyboard_init(void)
 		debug("%s: Cannot set up input\n", __func__);
 		return -1;
 	}
+	input_add_tables(&button_input, false);
 	button_input.read_keys = novena_gpio_button_read_keys;
 
 	error = input_stdio_register(&dev);
@@ -154,87 +153,10 @@ int board_mmc_init(bd_t *bis)
 }
 #endif
 
-/*
- * Video over HDMI
- */
-#if defined(CONFIG_VIDEO_IPUV3)
-static void enable_hdmi(struct display_info_t const *dev)
-{
-	imx_enable_hdmi_phy();
-}
-
-struct display_info_t const displays[] = {
-	{
-		/* HDMI Output */
-		.bus	= -1,
-		.addr	= 0,
-		.pixfmt	= IPU_PIX_FMT_RGB24,
-		.detect	= detect_hdmi,
-		.enable	= enable_hdmi,
-		.mode	= {
-			.name           = "HDMI",
-			.refresh        = 60,
-			.xres           = 1024,
-			.yres           = 768,
-			.pixclock       = 15385,
-			.left_margin    = 220,
-			.right_margin   = 40,
-			.upper_margin   = 21,
-			.lower_margin   = 7,
-			.hsync_len      = 60,
-			.vsync_len      = 10,
-			.sync           = FB_SYNC_EXT,
-			.vmode          = FB_VMODE_NONINTERLACED
-		}
-	}
-};
-
-size_t display_count = ARRAY_SIZE(displays);
-
-static void setup_display(void)
-{
-	struct mxc_ccm_reg *mxc_ccm = (struct mxc_ccm_reg *)CCM_BASE_ADDR;
-	struct iomuxc *iomux = (struct iomuxc *)IOMUXC_BASE_ADDR;
-
-	enable_ipu_clock();
-	imx_setup_hdmi();
-
-	/* Turn on LDB0,IPU,IPU DI0 clocks */
-	setbits_le32(&mxc_ccm->CCGR3, MXC_CCM_CCGR3_LDB_DI0_MASK);
-
-	/* set LDB0, LDB1 clk select to 011/011 */
-	clrsetbits_le32(&mxc_ccm->cs2cdr,
-			MXC_CCM_CS2CDR_LDB_DI0_CLK_SEL_MASK |
-			MXC_CCM_CS2CDR_LDB_DI1_CLK_SEL_MASK,
-			(3 << MXC_CCM_CS2CDR_LDB_DI0_CLK_SEL_OFFSET) |
-			(3 << MXC_CCM_CS2CDR_LDB_DI1_CLK_SEL_OFFSET));
-
-	setbits_le32(&mxc_ccm->cscmr2, MXC_CCM_CSCMR2_LDB_DI0_IPU_DIV);
-
-	setbits_le32(&mxc_ccm->chsccdr, CHSCCDR_CLK_SEL_LDB_DI0 <<
-		     MXC_CCM_CHSCCDR_IPU1_DI0_CLK_SEL_OFFSET);
-
-	writel(IOMUXC_GPR2_BGREF_RRMODE_EXTERNAL_RES |
-	       IOMUXC_GPR2_DI1_VS_POLARITY_ACTIVE_HIGH |
-	       IOMUXC_GPR2_DI0_VS_POLARITY_ACTIVE_LOW |
-	       IOMUXC_GPR2_BIT_MAPPING_CH1_SPWG |
-	       IOMUXC_GPR2_DATA_WIDTH_CH1_18BIT |
-	       IOMUXC_GPR2_BIT_MAPPING_CH0_SPWG |
-	       IOMUXC_GPR2_DATA_WIDTH_CH0_18BIT |
-	       IOMUXC_GPR2_LVDS_CH1_MODE_DISABLED |
-	       IOMUXC_GPR2_LVDS_CH0_MODE_ENABLED_DI0,
-	       &iomux->gpr[2]);
-
-	clrsetbits_le32(&iomux->gpr[3], IOMUXC_GPR3_LVDS0_MUX_CTL_MASK,
-			IOMUXC_GPR3_MUX_SRC_IPU1_DI0 <<
-			IOMUXC_GPR3_LVDS0_MUX_CTL_OFFSET);
-}
-#endif
-
 int board_early_init_f(void)
 {
 #if defined(CONFIG_VIDEO_IPUV3)
-	setup_display();
+	setup_display_clock();
 #endif
 
 	return 0;
@@ -245,10 +167,18 @@ int board_init(void)
 	/* address of boot parameters */
 	gd->bd->bi_boot_params = PHYS_SDRAM + 0x100;
 
-#ifdef CONFIG_CMD_SATA
+#ifdef CONFIG_SATA
 	setup_sata();
 #endif
 
+	return 0;
+}
+
+int board_late_init(void)
+{
+#if defined(CONFIG_VIDEO_IPUV3)
+	setup_display_lvds();
+#endif
 	return 0;
 }
 
@@ -286,7 +216,7 @@ int power_init_board(void)
 	/* Set SWBST to 5.0V and enable (for USB) */
 	pmic_reg_read(p, PFUZE100_SWBSTCON1, &reg);
 	reg &= ~(SWBST_MODE_MASK | SWBST_VOL_MASK);
-	reg |= (SWBST_5_00V | SWBST_MODE_AUTO);
+	reg |= (SWBST_5_00V | (SWBST_MODE_AUTO << SWBST_MODE_SHIFT));
 	pmic_reg_write(p, PFUZE100_SWBSTCON1, reg);
 
 	return 0;
@@ -310,7 +240,7 @@ int misc_init_r(void)
 	int ret;
 
 	/* If 'ethaddr' is already set, do nothing. */
-	if (getenv("ethaddr"))
+	if (env_get("ethaddr"))
 		return 0;
 
 	/* EEPROM is at bus 2. */
@@ -334,7 +264,7 @@ int misc_init_r(void)
 	}
 
 	/* Set ethernet address from EEPROM. */
-	eth_setenv_enetaddr("ethaddr", data.mac);
+	eth_env_set_enetaddr("ethaddr", data.mac);
 
 	return ret;
 }

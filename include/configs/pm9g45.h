@@ -25,7 +25,6 @@
 #define CONFIG_PM9G45		1	/* It's an Ronetix PM9G45 */
 #define CONFIG_SYS_AT91_CPU_NAME	"AT91SAM9G45"
 
-#define MACH_TYPE_PM9G45	2672
 #define CONFIG_MACH_TYPE	MACH_TYPE_PM9G45
 
 /* ARM asynchronous clock */
@@ -40,7 +39,6 @@
 #define CONFIG_INITRD_TAG	1
 
 #define CONFIG_SKIP_LOWLEVEL_INIT
-#define CONFIG_BOARD_EARLY_INIT_F
 
 /*
  * Hardware drivers
@@ -57,7 +55,6 @@
 #define CONFIG_RED_LED		GPIO_PIN_PD(31) /* this is the user1 led */
 #define CONFIG_GREEN_LED	GPIO_PIN_PD(0)  /* this is the user2 led */
 
-#define CONFIG_BOOTDELAY	3
 
 /*
  * BOOTP options
@@ -67,20 +64,6 @@
 #define CONFIG_BOOTP_GATEWAY		1
 #define CONFIG_BOOTP_HOSTNAME		1
 
-/*
- * Command line configuration.
- */
-#include <config_cmd_default.h>
-#undef CONFIG_CMD_FPGA
-#undef CONFIG_CMD_IMLS
-
-#define CONFIG_CMD_CACHE
-#define CONFIG_CMD_PING		1
-#define CONFIG_CMD_DHCP		1
-#define CONFIG_CMD_NAND		1
-#define CONFIG_CMD_USB		1
-
-#define CONFIG_CMD_JFFS2		1
 #define CONFIG_JFFS2_CMDLINE		1
 #define CONFIG_JFFS2_NAND		1
 #define CONFIG_JFFS2_DEV		"nand0" /* NAND dev jffs2 lives on */
@@ -91,10 +74,6 @@
 #define CONFIG_NR_DRAM_BANKS		1
 #define PHYS_SDRAM			0x70000000
 #define PHYS_SDRAM_SIZE			0x08000000	/* 128 megs */
-
-/* NOR flash, not available */
-#define CONFIG_SYS_NO_FLASH		1
-#undef CONFIG_CMD_FLASH
 
 /* NAND flash */
 #ifdef CONFIG_CMD_NAND
@@ -121,12 +100,10 @@
 #define CONFIG_USB_ATMEL
 #define CONFIG_USB_ATMEL_CLK_SEL_UPLL
 #define CONFIG_USB_OHCI_NEW		1
-#define CONFIG_DOS_PARTITION		1
 #define CONFIG_SYS_USB_OHCI_CPU_INIT	1
 #define CONFIG_SYS_USB_OHCI_REGS_BASE	0x00700000 /* _UHP_OHCI_BASE */
 #define CONFIG_SYS_USB_OHCI_SLOT_NAME	"at91sam9g45"
 #define CONFIG_SYS_USB_OHCI_MAX_ROOT_PORTS	2
-#define CONFIG_USB_STORAGE		1
 
 /* board specific(not enough SRAM) */
 #define CONFIG_AT91SAM9G45_LCD_BASE	PHYS_SDRAM + 0xE00000
@@ -137,30 +114,14 @@
 #define CONFIG_SYS_MEMTEST_END		CONFIG_AT91SAM9G45_LCD_BASE
 
 /* bootstrap + u-boot + env + linux in nandflash */
-#define CONFIG_ENV_IS_IN_NAND		1
 #define CONFIG_ENV_OFFSET		0x60000
 #define CONFIG_ENV_OFFSET_REDUND	0x80000
 #define CONFIG_ENV_SIZE			0x20000		/* 1 sector = 128 kB */
 #define CONFIG_BOOTCOMMAND	"nand read 0x72000000 0x200000 0x200000; bootm"
-#define CONFIG_BOOTARGS		"fbcon=rotate:3 console=tty0 " \
-				"console=ttyS0,115200 " \
-				"root=/dev/mtdblock4 " \
-				"mtdparts=atmel_nand:128k(bootstrap)ro," \
-				"256k(uboot)ro,1664k(env)," \
-				"2M(linux)ro,-(root) rw " \
-				"rootfstype=jffs2"
 
-#define CONFIG_BAUDRATE			115200
-
-#define CONFIG_SYS_PROMPT		"U-Boot> "
-#define CONFIG_SYS_CBSIZE		256
-#define CONFIG_SYS_MAXARGS		16
-#define CONFIG_SYS_PBSIZE		(CONFIG_SYS_CBSIZE + \
-					sizeof(CONFIG_SYS_PROMPT) + 16)
 #define CONFIG_SYS_LONGHELP		1
 #define CONFIG_CMDLINE_EDITING		1
 #define CONFIG_AUTO_COMPLETE
-#define CONFIG_SYS_HUSH_PARSER
 
 /*
  * Size of malloc() pool

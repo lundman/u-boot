@@ -11,7 +11,6 @@
 
 #include <asm-offsets.h>
 #include <config.h>
-#include <version.h>
 
 /*
  *************************************************************************
@@ -97,6 +96,7 @@ cpu_init_crit:
 	ldr	r1, cpuspeed
 	str	r1, [r0, #PPCR]
 
+#ifndef CONFIG_SKIP_LOWLEVEL_INIT_ONLY
 	/*
 	 * before relocating, we have to setup RAM timing
 	 * because memory timing is board-dependend, you will
@@ -105,6 +105,7 @@ cpu_init_crit:
 	mov	ip,	lr
 	bl	lowlevel_init
 	mov	lr,	ip
+#endif
 
 	/*
 	 * disable MMU stuff and enable I-cache
@@ -113,7 +114,7 @@ cpu_init_crit:
 	bic	r0, r0, #0x00002000	@ clear bit 13 (X)
 	bic	r0, r0, #0x0000000f	@ clear bits 3-0 (WCAM)
 	orr	r0, r0, #0x00001000	@ set bit 12 (I) Icache
-	orr	r0, r0, #0x00000002	@ set bit 2 (A) Align
+	orr	r0, r0, #0x00000002	@ set bit 1 (A) Align
 	mcr	p15,0,r0,c1,c0
 
 	/*

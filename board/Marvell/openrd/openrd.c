@@ -13,6 +13,7 @@
 
 #include <common.h>
 #include <miiphy.h>
+#include <asm/mach-types.h>
 #include <asm/arch/cpu.h>
 #include <asm/arch/soc.h>
 #include <asm/arch/mpp.h>
@@ -119,9 +120,8 @@ void mv_phy_init(char *name)
 		return;
 
 	/* command to read PHY dev address */
-	if (miiphy_read(name, 0xEE, 0xEE, (u16 *) &devadr)) {
-		printf("Err..%s could not read PHY dev address\n",
-			__FUNCTION__);
+	if (miiphy_read(name, 0xEE, 0xEE, (u16 *)&devadr)) {
+		printf("Err..%s could not read PHY dev address\n", __func__);
 		return;
 	}
 

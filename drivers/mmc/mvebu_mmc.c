@@ -1,7 +1,7 @@
 /*
  * Marvell MMC/SD/SDIO driver
  *
- * (C) Copyright 2012
+ * (C) Copyright 2012-2014
  * Marvell Semiconductor <www.marvell.com>
  * Written-by: Maen Suleiman, Gerald Kerma
  *
@@ -9,6 +9,7 @@
  */
 
 #include <common.h>
+#include <errno.h>
 #include <malloc.h>
 #include <part.h>
 #include <mmc.h>
@@ -22,6 +23,8 @@ DECLARE_GLOBAL_DATA_PTR;
 #define DRIVER_NAME "MVEBU_MMC"
 
 #define MVEBU_TARGET_DRAM 0
+
+#define TIMEOUT_DELAY	5*CONFIG_SYS_HZ		/* wait 5 seconds */
 
 static void mvebu_mmc_write(u32 offs, u32 val)
 {
@@ -63,37 +66,47 @@ static int mvebu_mmc_setup_data(struct mmc_data *data)
 static int mvebu_mmc_send_cmd(struct mmc *mmc, struct mmc_cmd *cmd,
 			      struct mmc_data *data)
 {
-	int timeout = 10;
+	ulong start;
 	ushort waittype = 0;
 	ushort resptype = 0;
 	ushort xfertype = 0;
 	ushort resp_indx = 0;
 
-	debug("cmdidx [0x%x] resp_type[0x%x] cmdarg[0x%x]\n",
-	      cmd->cmdidx, cmd->resp_type, cmd->cmdarg);
-
-	udelay(10*1000);
+	debug("%s: cmdidx [0x%x] resp_type[0x%x] cmdarg[0x%x]\n",
+	      DRIVER_NAME, cmd->cmdidx, cmd->resp_type, cmd->cmdarg);
 
 	debug("%s: cmd %d (hw state 0x%04x)\n", DRIVER_NAME,
 	      cmd->cmdidx, mvebu_mmc_read(SDIO_HW_STATE));
 
-	/* Checking if card is busy */
-	while ((mvebu_mmc_read(SDIO_HW_STATE) & CARD_BUSY)) {
-		if (timeout == 0) {
-			printf("%s: card busy!\n", DRIVER_NAME);
-			return -1;
-		}
-		timeout--;
-		udelay(1000);
+	/*
+	 * Hardware weirdness.  The FIFO_EMPTY bit of the HW_STATE
+	 * register is sometimes not set before a while when some
+	 * "unusual" data block sizes are used (such as with the SWITCH
+	 * command), even despite the fact that the XFER_DONE interrupt
+	 * was raised.  And if another data transfer starts before
+	 * this bit comes to good sense (which eventually happens by
+	 * itself) then the new transfer simply fails with a timeout.
+	 */
+	if (!(mvebu_mmc_read(SDIO_HW_STATE) & CMD_FIFO_EMPTY)) {
+		ushort hw_state, count = 0;
+
+		start = get_timer(0);
+		do {
+			hw_state = mvebu_mmc_read(SDIO_HW_STATE);
+			if ((get_timer(0) - start) > TIMEOUT_DELAY) {
+				printf("%s : FIFO_EMPTY bit missing\n",
+				       DRIVER_NAME);
+				break;
+			}
+			count++;
+		} while (!(hw_state & CMD_FIFO_EMPTY));
+		debug("%s *** wait for FIFO_EMPTY bit (hw=0x%04x, count=%d, jiffies=%ld)\n",
+		      DRIVER_NAME, hw_state, count, (get_timer(0) - (start)));
 	}
 
-	/* Set up for a data transfer if we have one */
-	if (data) {
-		int err = mvebu_mmc_setup_data(data);
-
-		if (err)
-			return err;
-	}
+	/* Clear status */
+	mvebu_mmc_write(SDIO_NOR_INTR_STATUS, SDIO_POLL_MASK);
+	mvebu_mmc_write(SDIO_ERR_INTR_STATUS, SDIO_POLL_MASK);
 
 	resptype = SDIO_CMD_INDEX(cmd->cmdidx);
 
@@ -119,6 +132,14 @@ static int mvebu_mmc_send_cmd(struct mmc *mmc, struct mmc_cmd *cmd,
 	}
 
 	if (data) {
+		int err = mvebu_mmc_setup_data(data);
+
+		if (err) {
+			debug("%s: command DATA error :%x\n",
+			      DRIVER_NAME, err);
+			return err;
+		}
+
 		resptype |= SDIO_CMD_DATA_PRESENT | SDIO_CMD_CHECK_DATACRC16;
 		xfertype |= SDIO_XFER_MODE_HW_WR_DATA_EN;
 		if (data->flags & MMC_DATA_READ) {
@@ -138,17 +159,10 @@ static int mvebu_mmc_send_cmd(struct mmc *mmc, struct mmc_cmd *cmd,
 	/* Setting Xfer mode */
 	mvebu_mmc_write(SDIO_XFER_MODE, xfertype);
 
-	mvebu_mmc_write(SDIO_NOR_INTR_STATUS, ~SDIO_NOR_CARD_INT);
-	mvebu_mmc_write(SDIO_ERR_INTR_STATUS, SDIO_POLL_MASK);
-
 	/* Sending command */
 	mvebu_mmc_write(SDIO_CMD, resptype);
 
-	mvebu_mmc_write(SDIO_NOR_INTR_EN, SDIO_POLL_MASK);
-	mvebu_mmc_write(SDIO_ERR_INTR_EN, SDIO_POLL_MASK);
-
-	/* Waiting for completion */
-	timeout = 1000000;
+	start = get_timer(0);
 
 	while (!((mvebu_mmc_read(SDIO_NOR_INTR_STATUS)) & waittype)) {
 		if (mvebu_mmc_read(SDIO_NOR_INTR_STATUS) & SDIO_NOR_ERROR) {
@@ -156,21 +170,20 @@ static int mvebu_mmc_send_cmd(struct mmc *mmc, struct mmc_cmd *cmd,
 			      DRIVER_NAME, cmd->cmdidx,
 			      mvebu_mmc_read(SDIO_ERR_INTR_STATUS));
 			if (mvebu_mmc_read(SDIO_ERR_INTR_STATUS) &
-				(SDIO_ERR_CMD_TIMEOUT | SDIO_ERR_DATA_TIMEOUT))
-				return TIMEOUT;
-			return COMM_ERR;
+			    (SDIO_ERR_CMD_TIMEOUT | SDIO_ERR_DATA_TIMEOUT)) {
+				debug("%s: command READ timed out\n",
+				      DRIVER_NAME);
+				return -ETIMEDOUT;
+			}
+			debug("%s: command READ error\n", DRIVER_NAME);
+			return -ECOMM;
 		}
 
-		timeout--;
-		udelay(1);
-		if (timeout <= 0) {
-			printf("%s: command timed out\n", DRIVER_NAME);
-			return TIMEOUT;
+		if ((get_timer(0) - start) > TIMEOUT_DELAY) {
+			debug("%s: command timed out\n", DRIVER_NAME);
+			return -ETIMEDOUT;
 		}
 	}
-	if (mvebu_mmc_read(SDIO_ERR_INTR_STATUS) &
-		(SDIO_ERR_CMD_TIMEOUT | SDIO_ERR_DATA_TIMEOUT))
-		return TIMEOUT;
 
 	/* Handling response */
 	if (cmd->resp_type & MMC_RSP_136) {
@@ -204,6 +217,11 @@ static int mvebu_mmc_send_cmd(struct mmc *mmc, struct mmc_cmd *cmd,
 		cmd->response[1] =	((response[0] & 0xfc00) >> 10);
 		cmd->response[2] =	0;
 		cmd->response[3] =	0;
+	} else {
+		cmd->response[0] =	0;
+		cmd->response[1] =	0;
+		cmd->response[2] =	0;
+		cmd->response[3] =	0;
 	}
 
 	debug("%s: resp[0x%x] ", DRIVER_NAME, cmd->resp_type);
@@ -212,6 +230,10 @@ static int mvebu_mmc_send_cmd(struct mmc *mmc, struct mmc_cmd *cmd,
 	debug("[0x%x] ", cmd->response[2]);
 	debug("[0x%x] ", cmd->response[3]);
 	debug("\n");
+
+	if (mvebu_mmc_read(SDIO_ERR_INTR_STATUS) &
+		(SDIO_ERR_CMD_TIMEOUT | SDIO_ERR_DATA_TIMEOUT))
+		return -ETIMEDOUT;
 
 	return 0;
 }
@@ -251,9 +273,8 @@ static void mvebu_mmc_set_clk(unsigned int clock)
 		if (m > MVEBU_MMC_BASE_DIV_MAX)
 			m = MVEBU_MMC_BASE_DIV_MAX;
 		mvebu_mmc_write(SDIO_CLK_DIV, m & MVEBU_MMC_BASE_DIV_MAX);
+		debug("%s: clock (%d) div : %d\n", DRIVER_NAME, clock, m);
 	}
-
-	udelay(10*1000);
 }
 
 static void mvebu_mmc_set_bus(unsigned int bus)
@@ -293,15 +314,16 @@ static void mvebu_mmc_set_bus(unsigned int bus)
 	      "high-speed" : "");
 
 	mvebu_mmc_write(SDIO_HOST_CTRL, ctrl_reg);
-	udelay(10*1000);
 }
 
-static void mvebu_mmc_set_ios(struct mmc *mmc)
+static int mvebu_mmc_set_ios(struct mmc *mmc)
 {
 	debug("%s: bus[%d] clock[%d]\n", DRIVER_NAME,
 	      mmc->bus_width, mmc->clock);
 	mvebu_mmc_set_bus(mmc->bus_width);
 	mvebu_mmc_set_clk(mmc->clock);
+
+	return 0;
 }
 
 /*
@@ -355,7 +377,7 @@ static void mvebu_window_setup(void)
 
 static int mvebu_mmc_initialize(struct mmc *mmc)
 {
-	debug("%s: mvebu_mmc_initialize", DRIVER_NAME);
+	debug("%s: mvebu_mmc_initialize\n", DRIVER_NAME);
 
 	/*
 	 * Setting host parameters
@@ -384,8 +406,6 @@ static int mvebu_mmc_initialize(struct mmc *mmc)
 	/* SW reset */
 	mvebu_mmc_write(SDIO_SW_RESET, SDIO_SW_RESET_NOW);
 
-	udelay(10*1000);
-
 	return 0;
 }
 
@@ -401,7 +421,7 @@ static struct mmc_config mvebu_mmc_cfg = {
 	.f_min		= MVEBU_MMC_BASE_FAST_CLOCK / MVEBU_MMC_BASE_DIV_MAX,
 	.f_max		= MVEBU_MMC_CLOCKRATE_MAX,
 	.voltages	= MMC_VDD_32_33 | MMC_VDD_33_34,
-	.host_caps	= MMC_MODE_4BIT | MMC_MODE_HS | MMC_MODE_HC |
+	.host_caps	= MMC_MODE_4BIT | MMC_MODE_HS |
 			  MMC_MODE_HS_52MHz,
 	.part_type	= PART_TYPE_DOS,
 	.b_max		= CONFIG_SYS_MMC_MAX_BLK_COUNT,

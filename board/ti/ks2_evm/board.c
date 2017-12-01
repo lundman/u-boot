@@ -7,18 +7,20 @@
  * SPDX-License-Identifier:     GPL-2.0+
  */
 
-#include "board.h"
 #include <common.h>
+#include "board.h"
 #include <spl.h>
 #include <exports.h>
 #include <fdt_support.h>
 #include <asm/arch/ddr3.h>
 #include <asm/arch/psc_defs.h>
+#include <asm/arch/clock.h>
 #include <asm/ti-common/ti-aemif.h>
 #include <asm/ti-common/keystone_net.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
+#if defined(CONFIG_TI_AEMIF)
 static struct aemif_config aemif_configs[] = {
 	{			/* CS0 */
 		.mode		= AEMIF_MODE_NAND,
@@ -32,32 +34,47 @@ static struct aemif_config aemif_configs[] = {
 		.width		= AEMIF_WIDTH_8,
 	},
 };
+#endif
 
 int dram_init(void)
 {
-	ddr3_init();
+	u32 ddr3_size;
+
+	ddr3_size = ddr3_init();
 
 	gd->ram_size = get_ram_size((long *)CONFIG_SYS_SDRAM_BASE,
 				    CONFIG_MAX_RAM_BANK_SIZE);
-	aemif_init(ARRAY_SIZE(aemif_configs), aemif_configs);
-	ddr3_init_ecc(KS2_DDR3A_EMIF_CTRL_BASE);
+#if defined(CONFIG_TI_AEMIF)
+	if (!board_is_k2g_ice())
+		aemif_init(ARRAY_SIZE(aemif_configs), aemif_configs);
+#endif
+
+	if (!board_is_k2g_ice()) {
+		if (ddr3_size)
+			ddr3_init_ecc(KS2_DDR3A_EMIF_CTRL_BASE, ddr3_size);
+		else
+			ddr3_init_ecc(KS2_DDR3A_EMIF_CTRL_BASE,
+				      gd->ram_size >> 30);
+	}
+
 	return 0;
 }
 
 int board_init(void)
 {
-	gd->bd->bi_boot_params = CONFIG_LINUX_BOOT_PARAM_ADDR;
+	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE + 0x100;
 
 	return 0;
 }
 
 #ifdef CONFIG_DRIVER_TI_KEYSTONE_NET
+#ifndef CONFIG_DM_ETH
 int get_eth_env_param(char *env_name)
 {
 	char *env;
 	int res = -1;
 
-	env = getenv(env_name);
+	env = env_get(env_name);
 	if (env)
 		res = simple_strtol(env, NULL, 0);
 
@@ -71,14 +88,21 @@ int board_eth_init(bd_t *bis)
 	int port_num;
 	char link_type_name[32];
 
+	if (cpu_is_k2g())
+		writel(KS2_ETHERNET_RGMII, KS2_ETHERNET_CFG);
+
 	/* By default, select PA PLL clock as PA clock source */
+#ifndef CONFIG_SOC_K2G
 	if (psc_enable_module(KS2_LPSC_PA))
 		return -1;
+#endif
 	if (psc_enable_module(KS2_LPSC_CPGMAC))
 		return -1;
 	if (psc_enable_module(KS2_LPSC_CRYPTO))
 		return -1;
-	pass_pll_pa_clk_enable();
+
+	if (cpu_is_k2e() || cpu_is_k2l())
+		pll_pa_clk_sel();
 
 	port_num = get_num_eth_ports();
 
@@ -93,6 +117,7 @@ int board_eth_init(bd_t *bis)
 
 	return 0;
 }
+#endif
 #endif
 
 #ifdef CONFIG_SPL_BUILD
@@ -113,8 +138,8 @@ u32 spl_boot_device(void)
 }
 #endif
 
-#if defined(CONFIG_OF_LIBFDT) && defined(CONFIG_OF_BOARD_SETUP)
-void ft_board_setup(void *blob, bd_t *bd)
+#ifdef CONFIG_OF_BOARD_SETUP
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	int lpae;
 	char *env;
@@ -122,21 +147,18 @@ void ft_board_setup(void *blob, bd_t *bd)
 	int nbanks;
 	u64 size[2];
 	u64 start[2];
-	char name[32];
 	int nodeoffset;
 	u32 ddr3a_size;
 	int unitrd_fixup = 0;
 
-	env = getenv("mem_lpae");
+	env = env_get("mem_lpae");
 	lpae = env && simple_strtol(env, NULL, 0);
-	env = getenv("uinitrd_fixup");
+	env = env_get("uinitrd_fixup");
 	unitrd_fixup = env && simple_strtol(env, NULL, 0);
 
 	ddr3a_size = 0;
 	if (lpae) {
-		env = getenv("ddr3a_size");
-		if (env)
-			ddr3a_size = simple_strtol(env, NULL, 10);
+		ddr3a_size = ddr3_get_size();
 		if ((ddr3a_size != 8) && (ddr3a_size != 4))
 			ddr3a_size = 0;
 	}
@@ -158,15 +180,13 @@ void ft_board_setup(void *blob, bd_t *bd)
 	}
 
 	/* reserve memory at start of bank */
-	sprintf(name, "mem_reserve_head");
-	env = getenv(name);
+	env = env_get("mem_reserve_head");
 	if (env) {
 		start[0] += ustrtoul(env, &endp, 0);
 		size[0] -= ustrtoul(env, &endp, 0);
 	}
 
-	sprintf(name, "mem_reserve");
-	env = getenv(name);
+	env = env_get("mem_reserve");
 	if (env)
 		size[0] -= ustrtoul(env, &endp, 0);
 
@@ -220,6 +240,8 @@ void ft_board_setup(void *blob, bd_t *bd)
 			}
 		}
 	}
+
+	return 0;
 }
 
 void ft_board_setup_ex(void *blob, bd_t *bd)
@@ -229,7 +251,7 @@ void ft_board_setup_ex(void *blob, bd_t *bd)
 	char *env;
 	u64 *reserve_start;
 
-	env = getenv("mem_lpae");
+	env = env_get("mem_lpae");
 	lpae = env && simple_strtol(env, NULL, 0);
 
 	if (lpae) {
@@ -257,5 +279,12 @@ void ft_board_setup_ex(void *blob, bd_t *bd)
 	}
 
 	ddr3_check_ecc_int(KS2_DDR3A_EMIF_CTRL_BASE);
+}
+#endif /* CONFIG_OF_BOARD_SETUP */
+
+#if defined(CONFIG_DTB_RESELECT)
+int __weak embedded_dtb_select(void)
+{
+	return 0;
 }
 #endif

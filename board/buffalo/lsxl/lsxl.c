@@ -203,7 +203,7 @@ void check_enetaddr(void)
 {
 	uchar enetaddr[6];
 
-	if (!eth_getenv_enetaddr("ethaddr", enetaddr)) {
+	if (!eth_env_get_enetaddr("ethaddr", enetaddr)) {
 		/* signal unset/invalid ethaddr to user */
 		set_led(LED_INFO_BLINKING);
 	}
@@ -227,20 +227,8 @@ static void erase_environment(void)
 
 static void rescue_mode(void)
 {
-	uchar enetaddr[6];
-
 	printf("Entering rescue mode..\n");
-#ifdef CONFIG_RANDOM_MACADDR
-	if (!eth_getenv_enetaddr("ethaddr", enetaddr)) {
-		eth_random_addr(enetaddr);
-		if (eth_setenv_enetaddr("ethaddr", enetaddr)) {
-			printf("Failed to set ethernet address\n");
-				set_led(LED_ALARM_BLINKING);
-			return;
-		}
-	}
-#endif
-	setenv("bootsource", "rescue");
+	env_set("bootsource", "rescue");
 }
 
 static void check_push_button(void)

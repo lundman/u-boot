@@ -31,14 +31,14 @@ static void fpga_no_sup(char *fn, char *msg)
 	else if (msg)
 		printf("No support for %s.\n", msg);
 	else
-		printf("No FPGA suport!\n");
+		printf("No FPGA support!\n");
 }
 
 
 /* fpga_get_desc
  *	map a device number to a descriptor
  */
-static const fpga_desc *const fpga_get_desc(int devnum)
+const fpga_desc *const fpga_get_desc(int devnum)
 {
 	fpga_desc *desc = (fpga_desc *)NULL;
 
@@ -120,7 +120,7 @@ static int fpga_dev_info(int devnum)
 }
 
 /*
- * fgpa_init is usually called from misc_init_r() and MUST be called
+ * fpga_init is usually called from misc_init_r() and MUST be called
  * before any of the other fpga functions are used.
  */
 void fpga_init(void)

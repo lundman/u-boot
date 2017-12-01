@@ -5,4 +5,5 @@
  */
 
 void fb_mmc_flash_write(const char *cmd, void *download_buffer,
-			unsigned int download_bytes, char *response);
+			unsigned int download_bytes);
+void fb_mmc_erase(const char *cmd);

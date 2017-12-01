@@ -1,6 +1,6 @@
-Broadcom: Cygnus
-M:	Steve Rae <srae@broadcom.com>
+BCM958300K BOARD
+M:	Steve Rae <steve.rae@raedomain.com>
 S:	Maintained
-F:	board/broadcom/bcm958300k/
+F:	board/broadcom/bcmcygnus/
 F:	include/configs/bcm_ep_board.h
 F:	configs/bcm958300k_defconfig

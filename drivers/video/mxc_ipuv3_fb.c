@@ -12,7 +12,7 @@
  */
 
 #include <common.h>
-#include <asm/errno.h>
+#include <linux/errno.h>
 #include <asm/global_data.h>
 #include <linux/string.h>
 #include <linux/list.h>
@@ -571,6 +571,9 @@ void ipuv3_fb_shutdown(void)
 	int i;
 	struct ipu_stat *stat = (struct ipu_stat *)IPU_STAT;
 
+	if (!ipu_clk_enabled())
+		return;
+
 	for (i = 0; i < ARRAY_SIZE(mxcfb_info); i++) {
 		struct fb_info *fbi = mxcfb_info[i];
 		if (fbi) {
@@ -597,15 +600,6 @@ void *video_hw_init(void)
 	debug("Framebuffer at 0x%x\n", (unsigned int)panel.frameAdrs);
 
 	return (void *)&panel;
-}
-
-void video_set_lut(unsigned int index, /* color number */
-			unsigned char r,    /* red */
-			unsigned char g,    /* green */
-			unsigned char b     /* blue */
-			)
-{
-	return;
 }
 
 int ipuv3_fb_init(struct fb_videomode const *mode,

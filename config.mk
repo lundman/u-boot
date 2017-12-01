@@ -24,6 +24,11 @@ VENDOR :=
 
 ARCH := $(CONFIG_SYS_ARCH:"%"=%)
 CPU := $(CONFIG_SYS_CPU:"%"=%)
+ifdef CONFIG_SPL_BUILD
+ifdef CONFIG_TEGRA
+CPU := arm720t
+endif
+endif
 BOARD := $(CONFIG_SYS_BOARD:"%"=%)
 ifneq ($(CONFIG_SYS_VENDOR),)
 VENDOR := $(CONFIG_SYS_VENDOR:"%"=%)
@@ -67,8 +72,6 @@ endif
 #########################################################################
 
 RELFLAGS := $(PLATFORM_RELFLAGS)
-
-OBJCOPYFLAGS += --gap-fill=0xff
 
 PLATFORM_CPPFLAGS += $(RELFLAGS)
 PLATFORM_CPPFLAGS += -pipe

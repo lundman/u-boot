@@ -10,25 +10,16 @@
 #define __CONFIG_EXYNOS5420_H
 
 #define CONFIG_EXYNOS5420
+/* A variant of Exynos5420 (Exynos5 Family) */
+#define CONFIG_EXYNOS5800
 
-#define CONFIG_ENV_IS_IN_SPI_FLASH
-#define CONFIG_SPI_FLASH
-#define CONFIG_ENV_SPI_BASE	0x12D30000
-#define FLASH_SIZE		(0x4 << 20)
-#define CONFIG_ENV_OFFSET	(FLASH_SIZE - CONFIG_BL2_SIZE)
-#define CONFIG_SPI_BOOTING
+#define CONFIG_EXYNOS5_DT
 
-#include <configs/exynos5-common.h>
-
-#define CONFIG_ARCH_EARLY_INIT_R
-
-#define MACH_TYPE_SMDK5420	8002
-#define CONFIG_MACH_TYPE	MACH_TYPE_SMDK5420
+/* Provide the MACH_TYPE value that the vendor kernel requires. */
+#define CONFIG_MACH_TYPE		8002
 
 #define CONFIG_VAR_SIZE_SPL
 
-#define CONFIG_SYS_SDRAM_BASE		0x20000000
-#define CONFIG_SYS_TEXT_BASE		0x23E00000
 #ifdef CONFIG_VAR_SIZE_SPL
 #define CONFIG_SPL_TEXT_BASE		0x02024410
 #else
@@ -38,27 +29,20 @@
 
 #define CONFIG_SPL_MAX_FOOTPRINT	(30 * 1024)
 
-#define CONFIG_DEVICE_TREE_LIST "exynos5420-peach-pit exynos5420-smdk5420"
+#define CONFIG_DEVICE_TREE_LIST "exynos5800-peach-pi"	\
+				"exynos5420-peach-pit exynos5420-smdk5420"
 
-#define CONFIG_MAX_I2C_NUM	11
+#define CONFIG_PHY_IRAM_BASE		0x02020000
 
-#define CONFIG_BOARD_REV_GPIO_COUNT	2
-
-#define CONFIG_BOOTCOMMAND	"mmc read 20007000 451 2000; bootm 20007000"
-
-#define CONFIG_SYS_USB_XHCI_MAX_ROOT_PORTS	2
+/* Address for relocating helper code (Last 4 KB of IRAM) */
+#define CONFIG_EXYNOS_RELOCATE_CODE_BASE	(CONFIG_IRAM_TOP - 0x1000)
 
 /*
- * Put the initial stack pointer 1KB below this to allow room for the
- * SPL marker. This value is arbitrary, but gd_t is placed starting here.
+ * Low Power settings
  */
-#define CONFIG_SYS_INIT_SP_ADDR	(CONFIG_IRAM_TOP - 0x800)
+#define CONFIG_LOWPOWER_FLAG		0x02020028
+#define CONFIG_LOWPOWER_ADDR		0x0202002C
 
-/* DRAM Memory Banks */
-#define CONFIG_NR_DRAM_BANKS	7
-#define SDRAM_BANK_SIZE		(512UL << 20UL)	/* 512 MB */
-
-/* Miscellaneous configurable options */
-#define CONFIG_DEFAULT_CONSOLE		"console=ttySAC1,115200n8\0"
+#define CONFIG_USB_XHCI_EXYNOS
 
 #endif	/* __CONFIG_EXYNOS5420_H */

@@ -13,28 +13,15 @@
 /*
  * High Level Configuration Options
  */
-#define CONFIG_ARMCORTEXA9		/* This is an ARM V7 CPU core */
 #define CONFIG_SYS_L2CACHE_OFF		/* No L2 cache */
 
 #include <asm/arch/tegra.h>		/* get chip and board defs */
 
-#define CONFIG_DM
-#define CONFIG_CMD_DM
-#define CONFIG_DM_GPIO
-#ifndef CONFIG_SPL_BUILD
-#define CONFIG_DM_SERIAL
-#endif
-#define CONFIG_DM_SPI
-#define CONFIG_DM_SPI_FLASH
-
+/* Use the Tegra US timer on ARMv7, but the architected timer on ARMv8. */
+#ifndef CONFIG_ARM64
 #define CONFIG_SYS_TIMER_RATE		1000000
 #define CONFIG_SYS_TIMER_COUNTER	NV_PA_TMRUS_BASE
-
-/*
- * Display CPU and Board information
- */
-#define CONFIG_DISPLAY_CPUINFO
-#define CONFIG_DISPLAY_BOARDINFO
+#endif
 
 #define CONFIG_CMDLINE_TAG		/* enable passing of ATAGs */
 
@@ -43,22 +30,9 @@
 #define CONFIG_ENV_SIZE			0x2000	/* Total Size Environment */
 
 /*
- * Size of malloc() pool
- */
-#define CONFIG_SYS_MALLOC_LEN		(4 << 20)	/* 4MB  */
-#define CONFIG_SYS_MALLOC_F_LEN	(1 << 10)
-
-/*
  * NS16550 Configuration
  */
-#ifdef CONFIG_SPL_BUILD
-#define CONFIG_SYS_NS16550_SERIAL
-#define CONFIG_SYS_NS16550_REG_SIZE	(-4)
 #define CONFIG_SYS_NS16550_CLK		V_NS16550_CLK
-#else
-#define CONFIG_TEGRA_SERIAL
-#endif
-#define CONFIG_SYS_NS16550
 
 /*
  * Common HW configuration.
@@ -74,56 +48,28 @@
 
 /* allow to overwrite serial and ethaddr */
 #define CONFIG_ENV_OVERWRITE
-#define CONFIG_BAUDRATE			115200
-
-/* include default commands */
-#include <config_cmd_default.h>
-
-/* remove unused commands */
-#undef CONFIG_CMD_FLASH		/* flinfo, erase, protect */
-#undef CONFIG_CMD_FPGA		/* FPGA configuration support */
-#undef CONFIG_CMD_IMI
-#undef CONFIG_CMD_IMLS
-#undef CONFIG_CMD_NFS		/* NFS support */
-#undef CONFIG_CMD_NET		/* network support */
 
 /* turn on command-line edit/hist/auto */
-#define CONFIG_COMMAND_HISTORY
+#define CONFIG_CMDLINE_EDITING
 
-/* turn on commonly used storage-related commands */
-#define CONFIG_PARTITION_UUIDS
-#define CONFIG_CMD_PART
-
-#define CONFIG_SYS_NO_FLASH
-
-#define CONFIG_CONSOLE_MUX
-#define CONFIG_SYS_CONSOLE_IS_IN_ENV
-
-/*
- * Miscellaneous configurable options
- */
-#define CONFIG_SYS_PROMPT		V_PROMPT
 /*
  * Increasing the size of the IO buffer as default nfsargs size is more
  *  than 256 and so it is not possible to edit it
  */
-#define CONFIG_SYS_CBSIZE		(256 * 2) /* Console I/O Buffer Size */
+#define CONFIG_SYS_CBSIZE		(1024 * 2) /* Console I/O Buffer Size */
 /* Print Buffer Size */
-#define CONFIG_SYS_PBSIZE		(CONFIG_SYS_CBSIZE + \
-					sizeof(CONFIG_SYS_PROMPT) + 16)
-#define CONFIG_SYS_MAXARGS		16	/* max number of command args */
+#define CONFIG_SYS_MAXARGS		64	/* max number of command args */
+
 /* Boot Argument Buffer Size */
 #define CONFIG_SYS_BARGSIZE		(CONFIG_SYS_CBSIZE)
 
 #define CONFIG_SYS_MEMTEST_START	(NV_PA_SDRC_CS0 + 0x600000)
 #define CONFIG_SYS_MEMTEST_END		(CONFIG_SYS_MEMTEST_START + 0x100000)
 
-#define CONFIG_USE_ARCH_MEMCPY
-
 /*-----------------------------------------------------------------------
  * Physical Memory Map
  */
-#define CONFIG_NR_DRAM_BANKS	1
+#define CONFIG_NR_DRAM_BANKS	2
 #define PHYS_SDRAM_1		NV_PA_SDRC_CS0
 #define PHYS_SDRAM_1_SIZE	0x20000000	/* 512M */
 
@@ -138,29 +84,14 @@
 						CONFIG_SYS_INIT_RAM_SIZE - \
 						GENERATED_GBL_DATA_SIZE)
 
-#define CONFIG_TEGRA_GPIO
-#define CONFIG_CMD_GPIO
-#define CONFIG_CMD_ENTERRCM
-
 /* Defines for SPL */
 #define CONFIG_SPL_FRAMEWORK
-#define CONFIG_SPL_RAM_DEVICE
-#define CONFIG_SPL_BOARD_INIT
-#define CONFIG_SPL_NAND_SIMPLE
 #define CONFIG_SPL_MAX_FOOTPRINT	(CONFIG_SYS_TEXT_BASE - \
 						CONFIG_SPL_TEXT_BASE)
 #define CONFIG_SYS_SPL_MALLOC_SIZE	0x00010000
 
-#define CONFIG_SPL_LIBCOMMON_SUPPORT
-#define CONFIG_SPL_LIBGENERIC_SUPPORT
-#define CONFIG_SPL_SERIAL_SUPPORT
-#define CONFIG_SPL_GPIO_SUPPORT
-
-#define CONFIG_SYS_GENERIC_BOARD
-
 /* Misc utility code */
 #define CONFIG_BOUNCE_BUFFER
-#define CONFIG_CRC32_VERIFY
 
 #ifndef CONFIG_SPL_BUILD
 #include <config_distro_defaults.h>

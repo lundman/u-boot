@@ -9,13 +9,17 @@
 
 #include <common.h>
 #include <malloc.h>
+#include <dm.h>
+#include <dm/platform_data/serial_sh.h>
 #include <asm/processor.h>
 #include <asm/mach-types.h>
 #include <asm/io.h>
-#include <asm/errno.h>
+#include <linux/errno.h>
 #include <asm/arch/sys_proto.h>
 #include <asm/gpio.h>
 #include <asm/arch/rmobile.h>
+#include <asm/arch/rcar-mstp.h>
+#include <asm/arch/sh_sdhi.h>
 #include <netdev.h>
 #include <miiphy.h>
 #include <i2c.h>
@@ -43,26 +47,17 @@ void s_init(void)
 	qos_init();
 }
 
-#define MSTPSR1		0xE6150038
-#define SMSTPCR1	0xE6150134
 #define TMU0_MSTP125	(1 << 25)
-
-#define MSTPSR7		0xE61501C4
-#define SMSTPCR7	0xE615014C
 #define SCIF0_MSTP721	(1 << 21)
-
-#define MSTPSR8		0xE61509A0
-#define SMSTPCR8	0xE6150990
 #define ETHER_MSTP813	(1 << 13)
 
-#define mstp_setbits(type, addr, saddr, set) \
-	out_##type((saddr), in_##type(addr) | (set))
-#define mstp_clrbits(type, addr, saddr, clear) \
-	out_##type((saddr), in_##type(addr) & ~(clear))
-#define mstp_setbits_le32(addr, saddr, set) \
-	mstp_setbits(le32, addr, saddr, set)
-#define mstp_clrbits_le32(addr, saddr, clear)   \
-	mstp_clrbits(le32, addr, saddr, clear)
+#define SDHI0_MSTP314	(1 << 14)
+#define SDHI1_MSTP312	(1 << 12)
+#define SDHI2_MSTP311	(1 << 11)
+
+#define SD1CKCR		0xE6150078
+#define SD2CKCR		0xE615026C
+#define SD_97500KHZ	0x7
 
 int board_early_init_f(void)
 {
@@ -74,13 +69,18 @@ int board_early_init_f(void)
 	/* ETHER */
 	mstp_clrbits_le32(MSTPSR8, SMSTPCR8, ETHER_MSTP813);
 
-	return 0;
-}
+	/* SDHI  */
+	mstp_clrbits_le32(MSTPSR3, SMSTPCR3,
+			  SDHI0_MSTP314 | SDHI1_MSTP312 | SDHI2_MSTP311);
 
-void arch_preboot_os(void)
-{
-	/* Disable TMU0 */
-	mstp_setbits_le32(MSTPSR1, SMSTPCR1, TMU0_MSTP125);
+	/*
+	 * SD0 clock is set to 97.5MHz by default.
+	 * Set SD1 and SD2 to the 97.5MHz as well.
+	 */
+	writel(SD_97500KHZ, SD1CKCR);
+	writel(SD_97500KHZ, SD2CKCR);
+
+	return 0;
 }
 
 /* LSI pin pull-up control */
@@ -90,7 +90,7 @@ void arch_preboot_os(void)
 int board_init(void)
 {
 	/* adress of boot parameters */
-	gd->bd->bi_boot_params = KOELSCH_SDRAM_BASE + 0x100;
+	gd->bd->bi_boot_params = CONFIG_SYS_SDRAM_BASE + 0x100;
 
 	/* Init PFC controller */
 	r8a7791_pinmux_init();
@@ -131,7 +131,7 @@ int board_eth_init(bd_t *bis)
 	unsigned char enetaddr[6];
 
 	ret = sh_eth_initialize(bis);
-	if (!eth_getenv_enetaddr("ethaddr", enetaddr))
+	if (!eth_env_get_enetaddr("ethaddr", enetaddr))
 		return ret;
 
 	/* Set Mac address */
@@ -146,6 +146,58 @@ int board_eth_init(bd_t *bis)
 #else
 	return 0;
 #endif
+}
+
+int board_mmc_init(bd_t *bis)
+{
+	int ret = -ENODEV;
+
+#ifdef CONFIG_SH_SDHI
+	gpio_request(GPIO_FN_SD0_DATA0, NULL);
+	gpio_request(GPIO_FN_SD0_DATA1, NULL);
+	gpio_request(GPIO_FN_SD0_DATA2, NULL);
+	gpio_request(GPIO_FN_SD0_DATA3, NULL);
+	gpio_request(GPIO_FN_SD0_CLK, NULL);
+	gpio_request(GPIO_FN_SD0_CMD, NULL);
+	gpio_request(GPIO_FN_SD0_CD, NULL);
+	gpio_request(GPIO_FN_SD2_DATA0, NULL);
+	gpio_request(GPIO_FN_SD2_DATA1, NULL);
+	gpio_request(GPIO_FN_SD2_DATA2, NULL);
+	gpio_request(GPIO_FN_SD2_DATA3, NULL);
+	gpio_request(GPIO_FN_SD2_CLK, NULL);
+	gpio_request(GPIO_FN_SD2_CMD, NULL);
+	gpio_request(GPIO_FN_SD2_CD, NULL);
+
+	/* SDHI 0 */
+	gpio_request(GPIO_GP_7_17, NULL);
+	gpio_request(GPIO_GP_2_12, NULL);
+	gpio_direction_output(GPIO_GP_7_17, 1); /* power on */
+	gpio_direction_output(GPIO_GP_2_12, 1); /* 1: 3.3V, 0: 1.8V */
+
+	ret = sh_sdhi_init(CONFIG_SYS_SH_SDHI0_BASE, 0,
+			   SH_SDHI_QUIRK_16BIT_BUF);
+	if (ret)
+		return ret;
+
+	/* SDHI 1 */
+	gpio_request(GPIO_GP_7_18, NULL);
+	gpio_request(GPIO_GP_2_13, NULL);
+	gpio_direction_output(GPIO_GP_7_18, 1); /* power on */
+	gpio_direction_output(GPIO_GP_2_13, 1); /* 1: 3.3V, 0: 1.8V */
+
+	ret = sh_sdhi_init(CONFIG_SYS_SH_SDHI1_BASE, 1, 0);
+	if (ret)
+		return ret;
+
+	/* SDHI 2 */
+	gpio_request(GPIO_GP_7_19, NULL);
+	gpio_request(GPIO_GP_2_26, NULL);
+	gpio_direction_output(GPIO_GP_7_19, 1); /* power on */
+	gpio_direction_output(GPIO_GP_2_26, 1); /* 1: 3.3V, 0: 1.8V */
+
+	ret = sh_sdhi_init(CONFIG_SYS_SH_SDHI2_BASE, 2, 0);
+#endif
+	return ret;
 }
 
 int dram_init(void)
@@ -170,19 +222,8 @@ int board_phy_config(struct phy_device *phydev)
 }
 
 const struct rmobile_sysinfo sysinfo = {
-	CONFIG_RMOBILE_BOARD_STRING
+	CONFIG_ARCH_RMOBILE_BOARD_STRING
 };
-
-void dram_init_banksize(void)
-{
-	gd->bd->bi_dram[0].start = KOELSCH_SDRAM_BASE;
-	gd->bd->bi_dram[0].size = KOELSCH_SDRAM_SIZE;
-}
-
-int board_late_init(void)
-{
-	return 0;
-}
 
 void reset_cpu(ulong addr)
 {
@@ -193,3 +234,15 @@ void reset_cpu(ulong addr)
 	val |= 0x02;
 	i2c_write(CONFIG_SYS_I2C_POWERIC_ADDR, 0x13, 1, &val, 1);
 }
+
+static const struct sh_serial_platdata serial_platdata = {
+	.base = SCIF0_BASE,
+	.type = PORT_SCIF,
+	.clk = 14745600,
+	.clk_mode = EXT_CLK,
+};
+
+U_BOOT_DEVICE(koelsch_serials) = {
+	.name = "serial_sh",
+	.platdata = &serial_platdata,
+};

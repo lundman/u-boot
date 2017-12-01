@@ -35,16 +35,9 @@
 #endif
 #endif
 
-#define CONFIG_ETHADDR		DE:AD:BE:EF:01:01    /* Ethernet address */
-
-#define CONFIG_BOOTDELAY	2	/* autoboot after 2 seconds	*/
-
-#define CONFIG_BAUDRATE		115200
-
 /* valid baudrates */
 
 #define	CONFIG_TIMESTAMP		/* Print image info with timestamp */
-#undef	CONFIG_BOOTARGS
 
 #define	CONFIG_EXTRA_ENV_SETTINGS					\
 	"addmisc=setenv bootargs ${bootargs} "				\
@@ -61,7 +54,6 @@
 #define CONFIG_BOOTCOMMAND	"bootp;bootm"
 #endif /* CONFIG_DBAU1550 */
 
-
 /*
  * BOOTP options
  */
@@ -70,55 +62,14 @@
 #define CONFIG_BOOTP_GATEWAY
 #define CONFIG_BOOTP_HOSTNAME
 
-
 /*
  * Command line configuration.
  */
-#include <config_cmd_default.h>
-
-#undef CONFIG_CMD_BDI
-#undef CONFIG_CMD_BEDBUG
-#undef CONFIG_CMD_ELF
-#undef CONFIG_CMD_SAVEENV
-#undef CONFIG_CMD_FAT
-#undef CONFIG_CMD_FPGA
-#undef CONFIG_CMD_MII
-#undef CONFIG_CMD_RUN
-
-
-#ifdef CONFIG_DBAU1550
-
-#define CONFIG_CMD_FLASH
-#define CONFIG_CMD_LOADB
-#define CONFIG_CMD_NET
-
-#undef CONFIG_CMD_I2C
-#undef CONFIG_CMD_IDE
-#undef CONFIG_CMD_NFS
-#undef CONFIG_CMD_PCMCIA
-
-#else
-
-#define CONFIG_CMD_IDE
-#define CONFIG_CMD_DHCP
-
-#undef CONFIG_CMD_FLASH
-#undef CONFIG_CMD_LOADB
-#undef CONFIG_CMD_LOADS
-
-#endif
-
 
 /*
  * Miscellaneous configurable options
  */
 #define	CONFIG_SYS_LONGHELP				/* undef to save memory      */
-
-#define	CONFIG_SYS_PROMPT		"DbAu1xx0 # "	/* Monitor Command Prompt    */
-
-#define	CONFIG_SYS_CBSIZE		256		/* Console I/O Buffer Size   */
-#define	CONFIG_SYS_PBSIZE (CONFIG_SYS_CBSIZE+sizeof(CONFIG_SYS_PROMPT)+16)  /* Print Buffer Size */
-#define	CONFIG_SYS_MAXARGS		16		/* max number of command args*/
 
 #define CONFIG_SYS_MALLOC_LEN		128*1024
 
@@ -165,7 +116,6 @@
 #define CONFIG_SYS_FLASH_CFI           1
 #define CONFIG_FLASH_CFI_DRIVER    1
 
-/* The following #defines are needed to get flash environment right */
 #define	CONFIG_SYS_MONITOR_BASE	CONFIG_SYS_TEXT_BASE
 #define	CONFIG_SYS_MONITOR_LEN		(192 << 10)
 
@@ -178,8 +128,6 @@
 #define CONFIG_SYS_FLASH_ERASE_TOUT	(2 * CONFIG_SYS_HZ) /* Timeout for Flash Erase */
 #define CONFIG_SYS_FLASH_WRITE_TOUT	(2 * CONFIG_SYS_HZ) /* Timeout for Flash Write */
 
-#define	CONFIG_ENV_IS_NOWHERE	1
-
 /* Address and size of Primary Environment Sector	*/
 #define CONFIG_ENV_ADDR		0xB0030000
 #define CONFIG_ENV_SIZE		0x10000
@@ -187,7 +135,6 @@
 #define CONFIG_FLASH_16BIT
 
 #define CONFIG_NR_DRAM_BANKS	2
-
 
 #ifdef CONFIG_DBAU1550
 #define MEM_SIZE 192
@@ -204,7 +151,6 @@
 #define CONFIG_PCMCIA_SLOT_A
 
 #define CONFIG_ATAPI 1
-#define CONFIG_MAC_PARTITION 1
 
 /* We run CF in "true ide" mode or a harddrive via pcmcia */
 #define CONFIG_IDE_PCMCIA 1
@@ -213,7 +159,6 @@
 #define CONFIG_SYS_IDE_MAXBUS		1	/* max. 1 IDE bus		*/
 #define CONFIG_SYS_IDE_MAXDEVICE	1	/* max. 1 drive per IDE bus	*/
 
-#undef	CONFIG_IDE_LED			/* LED   for ide not supported	*/
 #undef	CONFIG_IDE_RESET		/* reset for ide not supported	*/
 
 #define CONFIG_SYS_ATA_IDE0_OFFSET	0x0000
@@ -229,12 +174,5 @@
 /* Offset for alternate registers       */
 #define CONFIG_SYS_ATA_ALT_OFFSET      0x0100
 #endif /* CONFIG_DBAU1550 */
-
-/*-----------------------------------------------------------------------
- * Cache Configuration
- */
-#define CONFIG_SYS_DCACHE_SIZE		16384
-#define CONFIG_SYS_ICACHE_SIZE		16384
-#define CONFIG_SYS_CACHELINE_SIZE	32
 
 #endif	/* __CONFIG_H */

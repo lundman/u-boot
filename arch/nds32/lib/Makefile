@@ -9,7 +9,7 @@
 # SPDX-License-Identifier:	GPL-2.0+
 #
 
-obj-y += board.o
 obj-y += cache.o
 obj-$(CONFIG_CMD_BOOTM) += bootm.o
+obj-$(CONFIG_CMD_GO) += boot.o
 obj-y += interrupts.o

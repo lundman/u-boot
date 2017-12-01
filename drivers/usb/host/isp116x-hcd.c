@@ -103,12 +103,6 @@ static int rh_devnum;		/* address of Root Hub endpoint */
 
 /* ------------------------------------------------------------------------- */
 
-#define ALIGN(x,a)	(((x)+(a)-1UL)&~((a)-1UL))
-#define min_t(type,x,y)	\
-	({ type __x = (x); type __y = (y); __x < __y ? __x : __y; })
-
-/* ------------------------------------------------------------------------- */
-
 static int isp116x_reset(struct isp116x *isp116x);
 
 /* --- Debugging functions ------------------------------------------------- */
@@ -434,10 +428,10 @@ static int isp116x_interrupt(struct isp116x *isp116x)
 	isp116x_write_reg16(isp116x, HCuPINTENB, 0);
 	irqstat = isp116x_read_reg16(isp116x, HCuPINT);
 	isp116x_write_reg16(isp116x, HCuPINT, irqstat);
-	DBG(">>>>>> irqstat %x <<<<<<", irqstat);
+	DBG("------ irqstat %x ------", irqstat);
 
 	if (irqstat & HCuPINT_ATL) {
-		DBG(">>>>>> HCuPINT_ATL <<<<<<");
+		DBG("------ HCuPINT_ATL ------");
 		udelay(500);
 		ret = 1;
 	}
@@ -445,7 +439,7 @@ static int isp116x_interrupt(struct isp116x *isp116x)
 	if (irqstat & HCuPINT_OPR) {
 		intstat = isp116x_read_reg32(isp116x, HCINTSTAT);
 		isp116x_write_reg32(isp116x, HCINTSTAT, intstat);
-		DBG(">>>>>> HCuPINT_OPR %x <<<<<<", intstat);
+		DBG("------ HCuPINT_OPR %x ------", intstat);
 
 		if (intstat & HCINT_UE) {
 			ERR("unrecoverable error, controller disabled");

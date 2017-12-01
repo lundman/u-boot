@@ -20,6 +20,9 @@
 #include <dm/platform_data/serial_pl01x.h>
 #include <linux/compiler.h>
 #include "serial_pl01x_internal.h"
+#include <fdtdec.h>
+
+DECLARE_GLOBAL_DATA_PTR;
 
 #ifndef CONFIG_DM_SERIAL
 
@@ -28,7 +31,6 @@ static enum pl01x_type pl01x_type __attribute__ ((section(".data")));
 static struct pl01x_regs *base_regs __attribute__ ((section(".data")));
 #define NUM_PORTS (sizeof(port)/sizeof(port[0]))
 
-DECLARE_GLOBAL_DATA_PTR;
 #endif
 
 static int pl01x_putc(struct pl01x_regs *regs, char c)
@@ -72,50 +74,31 @@ static int pl01x_tstc(struct pl01x_regs *regs)
 static int pl01x_generic_serial_init(struct pl01x_regs *regs,
 				     enum pl01x_type type)
 {
-	unsigned int lcr;
-
-#ifdef CONFIG_PL011_SERIAL_FLUSH_ON_INIT
-	if (type == TYPE_PL011) {
-		/* Empty RX fifo if necessary */
-		if (readl(&regs->pl011_cr) & UART_PL011_CR_UARTEN) {
-			while (!(readl(&regs->fr) & UART_PL01x_FR_RXFE))
-				readl(&regs->dr);
-		}
-	}
-#endif
-
-	/* First, disable everything */
-	writel(0, &regs->pl010_cr);
-
-	/* Set the UART to be 8 bits, 1 stop bit, no parity, fifo enabled */
-	lcr = UART_PL011_LCRH_WLEN_8 | UART_PL011_LCRH_FEN;
-	writel(lcr, &regs->pl011_lcrh);
-
 	switch (type) {
 	case TYPE_PL010:
+		/* disable everything */
+		writel(0, &regs->pl010_cr);
 		break;
-	case TYPE_PL011: {
-#ifdef CONFIG_PL011_SERIAL_RLCR
-		int i;
-
-		/*
-		 * Program receive line control register after waiting
-		 * 10 bus cycles.  Delay be writing to readonly register
-		 * 10 times
-		 */
-		for (i = 0; i < 10; i++)
-			writel(lcr, &regs->fr);
-
-		writel(lcr, &regs->pl011_rlcr);
-		/* lcrh needs to be set again for change to be effective */
-		writel(lcr, &regs->pl011_lcrh);
-#endif
+	case TYPE_PL011:
+		/* disable everything */
+		writel(0, &regs->pl011_cr);
 		break;
-	}
 	default:
 		return -EINVAL;
 	}
 
+	return 0;
+}
+
+static int pl011_set_line_control(struct pl01x_regs *regs)
+{
+	unsigned int lcr;
+	/*
+	 * Internal update of baud rate register require line
+	 * control register write
+	 */
+	lcr = UART_PL011_LCRH_WLEN_8 | UART_PL011_LCRH_FEN;
+	writel(lcr, &regs->pl011_lcrh);
 	return 0;
 }
 
@@ -126,12 +109,15 @@ static int pl01x_generic_setbrg(struct pl01x_regs *regs, enum pl01x_type type,
 	case TYPE_PL010: {
 		unsigned int divisor;
 
+		/* disable everything */
+		writel(0, &regs->pl010_cr);
+
 		switch (baudrate) {
 		case 9600:
 			divisor = UART_PL010_BAUD_9600;
 			break;
 		case 19200:
-			divisor = UART_PL010_BAUD_9600;
+			divisor = UART_PL010_BAUD_19200;
 			break;
 		case 38400:
 			divisor = UART_PL010_BAUD_38400;
@@ -149,6 +135,12 @@ static int pl01x_generic_setbrg(struct pl01x_regs *regs, enum pl01x_type type,
 		writel((divisor & 0xf00) >> 8, &regs->pl010_lcrm);
 		writel(divisor & 0xff, &regs->pl010_lcrl);
 
+		/*
+		 * Set line control for the PL010 to be 8 bits, 1 stop bit,
+		 * no parity, fifo enabled
+		 */
+		writel(UART_PL010_LCRH_WLEN_8 | UART_PL010_LCRH_FEN,
+		       &regs->pl010_lcrh);
 		/* Finally, enable the UART */
 		writel(UART_PL010_CR_UARTEN, &regs->pl010_cr);
 		break;
@@ -175,6 +167,7 @@ static int pl01x_generic_setbrg(struct pl01x_regs *regs, enum pl01x_type type,
 		writel(divider, &regs->pl011_ibrd);
 		writel(fraction, &regs->pl011_fbrd);
 
+		pl011_set_line_control(regs);
 		/* Finally, enable the UART */
 		writel(UART_PL011_CR_UARTEN | UART_PL011_CR_TXE |
 		       UART_PL011_CR_RXE | UART_PL011_CR_RTS, &regs->pl011_cr);
@@ -201,7 +194,7 @@ static void pl01x_serial_init_baud(int baudrate)
 	base_regs = (struct pl01x_regs *)port[CONFIG_CONS_INDEX];
 
 	pl01x_generic_serial_init(base_regs, pl01x_type);
-	pl01x_generic_setbrg(base_regs, TYPE_PL010, clock, baudrate);
+	pl01x_generic_setbrg(base_regs, pl01x_type, clock, baudrate);
 }
 
 /*
@@ -291,7 +284,10 @@ static int pl01x_serial_setbrg(struct udevice *dev, int baudrate)
 	struct pl01x_serial_platdata *plat = dev_get_platdata(dev);
 	struct pl01x_priv *priv = dev_get_priv(dev);
 
-	pl01x_generic_setbrg(priv->regs, priv->type, plat->clock, baudrate);
+	if (!plat->skip_init) {
+		pl01x_generic_setbrg(priv->regs, priv->type, plat->clock,
+				     baudrate);
+	}
 
 	return 0;
 }
@@ -303,7 +299,10 @@ static int pl01x_serial_probe(struct udevice *dev)
 
 	priv->regs = (struct pl01x_regs *)plat->base;
 	priv->type = plat->type;
-	return pl01x_generic_serial_init(priv->regs, priv->type);
+	if (!plat->skip_init)
+		return pl01x_generic_serial_init(priv->regs, priv->type);
+	else
+		return 0;
 }
 
 static int pl01x_serial_getc(struct udevice *dev)
@@ -338,12 +337,70 @@ static const struct dm_serial_ops pl01x_serial_ops = {
 	.setbrg = pl01x_serial_setbrg,
 };
 
+#if CONFIG_IS_ENABLED(OF_CONTROL)
+static const struct udevice_id pl01x_serial_id[] ={
+	{.compatible = "arm,pl011", .data = TYPE_PL011},
+	{.compatible = "arm,pl010", .data = TYPE_PL010},
+	{}
+};
+
+static int pl01x_serial_ofdata_to_platdata(struct udevice *dev)
+{
+	struct pl01x_serial_platdata *plat = dev_get_platdata(dev);
+	fdt_addr_t addr;
+
+	addr = devfdt_get_addr(dev);
+	if (addr == FDT_ADDR_T_NONE)
+		return -EINVAL;
+
+	plat->base = addr;
+	plat->clock = fdtdec_get_int(gd->fdt_blob, dev_of_offset(dev), "clock",
+				     1);
+	plat->type = dev_get_driver_data(dev);
+	plat->skip_init = fdtdec_get_bool(gd->fdt_blob, dev_of_offset(dev),
+	                                  "skip-init");
+	return 0;
+}
+#endif
+
 U_BOOT_DRIVER(serial_pl01x) = {
 	.name	= "serial_pl01x",
 	.id	= UCLASS_SERIAL,
+	.of_match = of_match_ptr(pl01x_serial_id),
+	.ofdata_to_platdata = of_match_ptr(pl01x_serial_ofdata_to_platdata),
+	.platdata_auto_alloc_size = sizeof(struct pl01x_serial_platdata),
 	.probe = pl01x_serial_probe,
 	.ops	= &pl01x_serial_ops,
 	.flags = DM_FLAG_PRE_RELOC,
+	.priv_auto_alloc_size = sizeof(struct pl01x_priv),
 };
+
+#endif
+
+#if defined(CONFIG_DEBUG_UART_PL010) || defined(CONFIG_DEBUG_UART_PL011)
+
+#include <debug_uart.h>
+
+static void _debug_uart_init(void)
+{
+#ifndef CONFIG_DEBUG_UART_SKIP_INIT
+	struct pl01x_regs *regs = (struct pl01x_regs *)CONFIG_DEBUG_UART_BASE;
+	enum pl01x_type type = CONFIG_IS_ENABLED(DEBUG_UART_PL011) ?
+				TYPE_PL011 : TYPE_PL010;
+
+	pl01x_generic_serial_init(regs, type);
+	pl01x_generic_setbrg(regs, type,
+			     CONFIG_DEBUG_UART_CLOCK, CONFIG_BAUDRATE);
+#endif
+}
+
+static inline void _debug_uart_putc(int ch)
+{
+	struct pl01x_regs *regs = (struct pl01x_regs *)CONFIG_DEBUG_UART_BASE;
+
+	pl01x_putc(regs, ch);
+}
+
+DEBUG_UART_FUNCS
 
 #endif

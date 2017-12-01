@@ -1,17 +1,7 @@
 /*
  * Copyright (c) 2014, Marcel Ziswiler
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms and conditions of the GNU General Public License,
- * version 2, as published by the Free Software Foundation.
- *
- * This program is distributed in the hope it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
- * more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * SPDX-License-Identifier:	GPL-2.0
  */
 
 #ifndef _PINMUX_CONFIG_APALIS_T30_H_
@@ -104,8 +94,8 @@ static struct pmux_pingrp_config tegra3_pinmux_common[] = {
 	I2C_PINMUX(GEN1_I2C_SDA_PC5, I2C1, NORMAL, NORMAL, INPUT, DISABLE, ENABLE),
 
 	/* I2C2 pinmux */
-	I2C_PINMUX(GEN2_I2C_SCL_PT5, I2C2, NORMAL, NORMAL, INPUT, DISABLE, ENABLE),
-	I2C_PINMUX(GEN2_I2C_SDA_PT6, I2C2, NORMAL, NORMAL, INPUT, DISABLE, ENABLE),
+	I2C_PINMUX(GEN2_I2C_SCL_PT5, RSVD3, NORMAL, NORMAL, INPUT, DEFAULT, DISABLE),
+	I2C_PINMUX(GEN2_I2C_SDA_PT6, RSVD3, NORMAL, NORMAL, INPUT, DEFAULT, DISABLE),
 
 	/* I2C3 pinmux */
 	I2C_PINMUX(CAM_I2C_SCL_PBB1, I2C3, NORMAL, TRISTATE, INPUT, DISABLE, ENABLE),

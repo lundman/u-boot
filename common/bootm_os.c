@@ -21,9 +21,9 @@ static int do_bootm_standalone(int flag, int argc, char * const argv[],
 	int (*appl)(int, char *const[]);
 
 	/* Don't start if "autostart" is set to "no" */
-	s = getenv("autostart");
+	s = env_get("autostart");
 	if ((s != NULL) && !strcmp(s, "no")) {
-		setenv_hex("filesize", images->os.image_len);
+		env_set_hex("filesize", images->os.image_len);
 		return 0;
 	}
 	appl = (int (*)(int, char * const []))images->ep;
@@ -56,7 +56,6 @@ static int do_bootm_netbsd(int flag, int argc, char * const argv[],
 	void (*loader)(bd_t *, image_header_t *, char *, char *);
 	image_header_t *os_hdr, *hdr;
 	ulong kernel_data, kernel_len;
-	char *consdev;
 	char *cmdline;
 
 	if (flag != BOOTM_STATE_OS_GO)
@@ -88,17 +87,6 @@ static int do_bootm_netbsd(int flag, int argc, char * const argv[],
 			os_hdr = hdr;
 	}
 
-	consdev = "";
-#if   defined(CONFIG_8xx_CONS_SMC1)
-	consdev = "smc1";
-#elif defined(CONFIG_8xx_CONS_SMC2)
-	consdev = "smc2";
-#elif defined(CONFIG_8xx_CONS_SCC2)
-	consdev = "scc2";
-#elif defined(CONFIG_8xx_CONS_SCC3)
-	consdev = "scc3";
-#endif
-
 	if (argc > 0) {
 		ulong len;
 		int   i;
@@ -108,7 +96,7 @@ static int do_bootm_netbsd(int flag, int argc, char * const argv[],
 		cmdline = malloc(len);
 		copy_args(cmdline, argc, argv, ' ');
 	} else {
-		cmdline = getenv("bootargs");
+		cmdline = env_get("bootargs");
 		if (cmdline == NULL)
 			cmdline = "";
 	}
@@ -127,7 +115,7 @@ static int do_bootm_netbsd(int flag, int argc, char * const argv[],
 	 *   arg[2]: char pointer to the console device to use
 	 *   arg[3]: char pointer to the boot arguments
 	 */
-	(*loader)(gd->bd, os_hdr, consdev, cmdline);
+	(*loader)(gd->bd, os_hdr, "", cmdline);
 
 	return 1;
 }
@@ -239,14 +227,14 @@ static int do_bootm_plan9(int flag, int argc, char * const argv[],
 #endif
 
 	/* See README.plan9 */
-	s = getenv("confaddr");
+	s = env_get("confaddr");
 	if (s != NULL) {
 		char *confaddr = (char *)simple_strtoul(s, NULL, 16);
 
 		if (argc > 0) {
 			copy_args(confaddr, argc, argv, '\n');
 		} else {
-			s = getenv("bootargs");
+			s = env_get("bootargs");
 			if (s != NULL)
 				strcpy(confaddr, s);
 		}
@@ -288,9 +276,12 @@ void do_bootvx_fdt(bootm_headers_t *images)
 		if (ret)
 			return;
 
+		/* Update ethernet nodes */
+		fdt_fixup_ethernet(*of_flat_tree);
+
 		ret = fdt_add_subnode(*of_flat_tree, 0, "chosen");
 		if ((ret >= 0 || ret == -FDT_ERR_EXISTS)) {
-			bootline = getenv("bootargs");
+			bootline = env_get("bootargs");
 			if (bootline) {
 				ret = fdt_find_and_setprop(*of_flat_tree,
 						"/chosen", "bootargs",
@@ -351,6 +342,7 @@ static int do_bootm_qnxelf(int flag, int argc, char * const argv[],
 {
 	char *local_args[2];
 	char str[16];
+	int dcache;
 
 	if (flag != BOOTM_STATE_OS_GO)
 		return 0;
@@ -365,7 +357,18 @@ static int do_bootm_qnxelf(int flag, int argc, char * const argv[],
 	sprintf(str, "%lx", images->ep); /* write entry-point into string */
 	local_args[0] = argv[0];
 	local_args[1] = str;	/* and provide it via the arguments */
+
+	/*
+	 * QNX images require the data cache is disabled.
+	 */
+	dcache = dcache_status();
+	if (dcache)
+		dcache_disable();
+
 	do_bootelf(NULL, 0, 2, local_args);
+
+	if (dcache)
+		dcache_enable();
 
 	return 1;
 }
@@ -404,6 +407,32 @@ static int do_bootm_integrity(int flag, int argc, char * const argv[],
 }
 #endif
 
+#ifdef CONFIG_BOOTM_OPENRTOS
+static int do_bootm_openrtos(int flag, int argc, char * const argv[],
+			   bootm_headers_t *images)
+{
+	void (*entry_point)(void);
+
+	if (flag != BOOTM_STATE_OS_GO)
+		return 0;
+
+	entry_point = (void (*)(void))images->ep;
+
+	printf("## Transferring control to OpenRTOS (at address %08lx) ...\n",
+		(ulong)entry_point);
+
+	bootstage_mark(BOOTSTAGE_ID_RUN_OS);
+
+	/*
+	 * OpenRTOS Parameters:
+	 *   None
+	 */
+	(*entry_point)();
+
+	return 1;
+}
+#endif
+
 static boot_os_fn *boot_os[] = {
 	[IH_OS_U_BOOT] = do_bootm_standalone,
 #ifdef CONFIG_BOOTM_LINUX
@@ -434,6 +463,9 @@ static boot_os_fn *boot_os[] = {
 #ifdef CONFIG_INTEGRITY
 	[IH_OS_INTEGRITY] = do_bootm_integrity,
 #endif
+#ifdef CONFIG_BOOTM_OPENRTOS
+	[IH_OS_OPENRTOS] = do_bootm_openrtos,
+#endif
 };
 
 /* Allow for arch specific config before we boot */
@@ -450,12 +482,12 @@ int boot_selected_os(int argc, char * const argv[], int state,
 
 	/* Stand-alone may return when 'autostart' is 'no' */
 	if (images->os.type == IH_TYPE_STANDALONE ||
+	    IS_ENABLED(CONFIG_SANDBOX) ||
 	    state == BOOTM_STATE_OS_FAKE_GO) /* We expect to return */
 		return 0;
 	bootstage_error(BOOTSTAGE_ID_BOOT_OS_RETURNED);
-#ifdef DEBUG
-	puts("\n## Control returned to monitor - resetting...\n");
-#endif
+	debug("\n## Control returned to monitor - resetting...\n");
+
 	return BOOTM_ERR_RESET;
 }
 

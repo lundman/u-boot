@@ -29,8 +29,8 @@ struct header {
 	uint16_t	nauth;		/* Authority PRs */
 	uint16_t	nother;		/* Other PRs */
 	unsigned char	data[1];	/* Data, variable length */
-};
+} __attribute__((packed));
 
-extern void DnsStart(void);		/* Begin DNS */
+void dns_start(void);		/* Begin DNS */
 
 #endif

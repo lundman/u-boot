@@ -7,6 +7,7 @@
  */
 
 #include <common.h>
+#include <console.h>
 #include <hwconfig.h>
 #include <pci.h>
 #include <asm/processor.h>
@@ -514,7 +515,7 @@ void pci_init_board(void)
 #endif /* CONFIG_PCI */
 
 #if defined(CONFIG_OF_BOARD_SETUP)
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 #if defined(CONFIG_SYS_UCC_RMII_MODE)
 	int nodeoff, off, err;
@@ -579,5 +580,7 @@ void ft_board_setup(void *blob, bd_t *bd)
 	fdt_board_fixup_esdhc(blob, bd);
 	fdt_board_fixup_qe_uart(blob, bd);
 	fdt_board_fixup_qe_usb(blob, bd);
+
+	return 0;
 }
 #endif

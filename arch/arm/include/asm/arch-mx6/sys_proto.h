@@ -5,42 +5,30 @@
  * SPDX-License-Identifier:	GPL-2.0+
  */
 
-#ifndef _SYS_PROTO_H_
-#define _SYS_PROTO_H_
+#ifndef __SYS_PROTO_IMX6_
+#define __SYS_PROTO_IMX6_
 
-#include <asm/imx-common/regs-common.h>
-#include "../arch-imx/cpu.h"
+#include <asm/mach-imx/sys_proto.h>
+#include <asm/arch/iomux.h>
 
-#define soc_rev() (get_cpu_rev() & 0xFF)
-#define is_soc_rev(rev)        (soc_rev() - rev)
+#define USBPHY_PWD		0x00000000
 
-u32 get_nr_cpus(void);
-u32 get_cpu_rev(void);
+#define USBPHY_PWD_RXPWDRX	(1 << 20) /* receiver block power down */
 
-/* returns MXC_CPU_ value */
-#define cpu_type(rev) (((rev) >> 12)&0xff)
+#define is_usbotg_phy_active(void) (!(readl(USB_PHY0_BASE_ADDR + USBPHY_PWD) & \
+				   USBPHY_PWD_RXPWDRX))
 
-/* both macros return/take MXC_CPU_ constants */
-#define get_cpu_type()	(cpu_type(get_cpu_rev()))
-#define is_cpu_type(cpu) (get_cpu_type() == cpu)
+int imx6_pcie_toggle_power(void);
+int imx6_pcie_toggle_reset(void);
 
-const char *get_imx_type(u32 imxtype);
-unsigned imx_ddr_size(void);
-
-/*
- * Initializes on-chip ethernet controllers.
- * to override, implement board_eth_init()
+/**
+ * iomuxc_set_rgmii_io_voltage - set voltage level of RGMII/USB pins
+ *
+ * @param io_vol - the voltage IO level of pins
  */
+static inline void iomuxc_set_rgmii_io_voltage(int io_vol)
+{
+	__raw_writel(io_vol, IOMUXC_SW_PAD_CTL_GRP_DDR_TYPE_RGMII);
+}
 
-int fecmxc_initialize(bd_t *bis);
-u32 get_ahb_clk(void);
-u32 get_periph_clk(void);
-
-int mxs_reset_block(struct mxs_register_32 *reg);
-int mxs_wait_mask_set(struct mxs_register_32 *reg,
-		       uint32_t mask,
-		       unsigned int timeout);
-int mxs_wait_mask_clr(struct mxs_register_32 *reg,
-		       uint32_t mask,
-		       unsigned int timeout);
-#endif
+#endif /* __SYS_PROTO_IMX6_ */

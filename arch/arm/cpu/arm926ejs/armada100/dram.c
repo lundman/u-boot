@@ -72,7 +72,6 @@ u32 armd1_sdram_size(int chip_sel)
 	}
 }
 
-#ifndef CONFIG_SYS_BOARD_DRAM_INIT
 int dram_init(void)
 {
 	int i;
@@ -109,8 +108,9 @@ int dram_init(void)
  * If this function is not defined here,
  * board.c alters dram bank zero configuration defined above.
  */
-void dram_init_banksize(void)
+int dram_init_banksize(void)
 {
 	dram_init();
+
+	return 0;
 }
-#endif /* CONFIG_SYS_BOARD_DRAM_INIT */

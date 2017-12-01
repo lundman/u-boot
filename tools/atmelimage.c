@@ -1,6 +1,6 @@
 /*
  * (C) Copyright 2014
- * Andreas Bießmann <andreas.devel@googlemail.com>
+ * Andreas Bießmann <andreas@biessmann.org>
  *
  * SPDX-License-Identifier:	GPL-2.0+
  */
@@ -131,7 +131,7 @@ static int atmel_verify_header(unsigned char *ptr, int image_size,
 
 	/* check the seven interrupt vectors of binary */
 	for (pos = 0; pos < 7; pos++) {
-		debug("atmelimage: interrupt vector #%d is 0x%08X\n", pos+1,
+		debug("atmelimage: interrupt vector #%zu is 0x%08X\n", pos+1,
 		      ints[pos]);
 		/*
 		 * all vectors except the 6'th one must contain valid
@@ -324,19 +324,17 @@ static int atmel_vrec_header(struct image_tool_params *params,
 	return EXIT_SUCCESS;
 }
 
-static struct image_type_params atmelimage_params = {
-	.name		= "ATMEL ROM-Boot Image support",
-	.header_size	= 0,
-	.hdr		= NULL,
-	.check_image_type = atmel_check_image_type,
-	.verify_header	= atmel_verify_header,
-	.print_header	= atmel_print_header,
-	.set_header	= atmel_set_header,
-	.check_params	= atmel_check_params,
-	.vrec_header	= atmel_vrec_header,
-};
-
-void init_atmel_image_type(void)
-{
-	register_image_type(&atmelimage_params);
-}
+U_BOOT_IMAGE_TYPE(
+	atmelimage,
+	"ATMEL ROM-Boot Image support",
+	0,
+	NULL,
+	atmel_check_params,
+	atmel_verify_header,
+	atmel_print_header,
+	atmel_set_header,
+	NULL,
+	atmel_check_image_type,
+	NULL,
+	atmel_vrec_header
+);

@@ -7,6 +7,8 @@
 #include <common.h>
 #include <fsl_ddr_sdram.h>
 #include <fsl_ddr_dimm_params.h>
+#include <asm/io.h>
+#include <asm/arch/clock.h>
 #include "ddr.h"
 
 DECLARE_GLOBAL_DATA_PTR;
@@ -95,6 +97,9 @@ found:
 #else
 	popts->cswl_override = DDR_CSWL_CS0;
 
+	/* optimize cpo for erratum A-009942 */
+	popts->cpo_sample = 0x58;
+
 	/* DHC_EN =1, ODT = 75 Ohm */
 	popts->ddr_cdr1 = DDR_CDR1_DHC_EN | DDR_CDR1_ODT(DDR_CDR_ODT_75ohm);
 	popts->ddr_cdr2 = DDR_CDR2_ODT(DDR_CDR_ODT_75ohm);
@@ -149,18 +154,41 @@ int fsl_ddr_get_dimm_params(dimm_params_t *pdimm,
 }
 #endif
 
-phys_size_t initdram(int board_type)
+#if defined(CONFIG_DEEP_SLEEP)
+void board_mem_sleep_setup(void)
+{
+	void __iomem *qixis_base = (void *)QIXIS_BASE;
+
+	/* does not provide HW signals for power management */
+	clrbits_8(qixis_base + 0x21, 0x2);
+	udelay(1);
+}
+#endif
+
+int fsl_initdram(void)
 {
 	phys_size_t dram_size;
 
+#if defined(CONFIG_SPL_BUILD) || !defined(CONFIG_SPL)
 	puts("Initializing DDR....using SPD\n");
 	dram_size = fsl_ddr_sdram();
+#else
+	dram_size =  fsl_ddr_sdram_size();
+#endif
 
-	return dram_size;
+#if defined(CONFIG_DEEP_SLEEP) && !defined(CONFIG_SPL_BUILD)
+	fsl_dp_resume();
+#endif
+
+	gd->ram_size = dram_size;
+
+	return 0;
 }
 
-void dram_init_banksize(void)
+int dram_init_banksize(void)
 {
 	gd->bd->bi_dram[0].start = CONFIG_SYS_SDRAM_BASE;
 	gd->bd->bi_dram[0].size = gd->ram_size;
+
+	return 0;
 }

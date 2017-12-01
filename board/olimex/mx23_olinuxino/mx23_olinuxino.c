@@ -13,7 +13,7 @@
 #include <asm/arch/imx-regs.h>
 #include <asm/arch/clock.h>
 #include <asm/arch/sys_proto.h>
-#ifdef CONFIG_STATUS_LED
+#ifdef CONFIG_LED_STATUS
 #include <status_led.h>
 #endif
 
@@ -72,39 +72,9 @@ int board_init(void)
 	/* Adress of boot parameters */
 	gd->bd->bi_boot_params = PHYS_SDRAM_1 + 0x100;
 
-#if defined(CONFIG_STATUS_LED) && defined(STATUS_LED_BOOT)
-	status_led_set(STATUS_LED_BOOT, STATUS_LED_STATE);
+#if defined(CONFIG_LED_STATUS) && defined(CONFIG_LED_STATUS_BOOT_ENABLE)
+	status_led_set(CONFIG_LED_STATUS_BOOT, CONFIG_LED_STATUS_STATE);
 #endif
 
 	return 0;
-}
-
-/* Fine-tune the DRAM configuration. */
-void mxs_adjust_memory_params(uint32_t *dram_vals)
-{
-	/* Enable Auto Precharge. */
-	dram_vals[3] |= 1 << 8;
-	/* Enable Fast Writes. */
-	dram_vals[5] |= 1 << 8;
-	/* tEMRS = 3*tCK */
-	dram_vals[10] &= ~(0x3 << 8);
-	dram_vals[10] |= (0x3 << 8);
-	/* CASLAT = 3*tCK */
-	dram_vals[11] &= ~(0x3 << 0);
-	dram_vals[11] |= (0x3 << 0);
-	/* tCKE = 1*tCK */
-	dram_vals[12] &= ~(0x7 << 0);
-	dram_vals[12] |= (0x1 << 0);
-	/* CASLAT_LIN_GATE = 3*tCK , CASLAT_LIN = 3*tCK, tWTR=2*tCK */
-	dram_vals[13] &= ~((0xf << 16) | (0xf << 24) | (0xf << 0));
-	dram_vals[13] |= (0x6 << 16) | (0x6 << 24) | (0x2 << 0);
-	/* tDAL = 6*tCK */
-	dram_vals[15] &= ~(0xf << 16);
-	dram_vals[15] |= (0x6 << 16);
-	/* tREF = 1040*tCK */
-	dram_vals[26] &= ~0xffff;
-	dram_vals[26] |= 0x0410;
-	/* tRAS_MAX = 9334*tCK */
-	dram_vals[32] &= ~0xffff;
-	dram_vals[32] |= 0x2475;
 }

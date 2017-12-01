@@ -12,8 +12,9 @@
 #define _CLOCKS_H_
 
 #include <asm/arch/clocks_am33xx.h>
+#include <asm/arch/hardware.h>
 
-#ifdef CONFIG_TI81XX
+#if defined(CONFIG_TI816X) || defined(CONFIG_TI814X)
 #include <asm/arch/clock_ti81xx.h>
 #endif
 
@@ -44,6 +45,9 @@
 /* CM_CLKMODE_DPLL */
 #define CM_CLKMODE_DPLL_SSC_EN_SHIFT		12
 #define CM_CLKMODE_DPLL_SSC_EN_MASK		(1 << 12)
+#define CM_CLKMODE_DPLL_SSC_ACK_MASK		(1 << 13)
+#define CM_CLKMODE_DPLL_SSC_DOWNSPREAD_MASK	(1 << 14)
+#define CM_CLKMODE_DPLL_SSC_TYPE_MASK		(1 << 15)
 #define CM_CLKMODE_DPLL_REGM4XEN_SHIFT		11
 #define CM_CLKMODE_DPLL_REGM4XEN_MASK		(1 << 11)
 #define CM_CLKMODE_DPLL_LPMODE_EN_SHIFT		10
@@ -100,6 +104,12 @@ extern const struct dpll_regs dpll_mpu_regs;
 extern const struct dpll_regs dpll_core_regs;
 extern const struct dpll_regs dpll_per_regs;
 extern const struct dpll_regs dpll_ddr_regs;
+extern const struct dpll_params dpll_mpu_opp[NUM_CRYSTAL_FREQ][NUM_OPPS];
+extern const struct dpll_params dpll_core_1000MHz[NUM_CRYSTAL_FREQ];
+extern const struct dpll_params dpll_per_192MHz[NUM_CRYSTAL_FREQ];
+extern const struct dpll_params dpll_ddr2_266MHz[NUM_CRYSTAL_FREQ];
+extern const struct dpll_params dpll_ddr3_303MHz[NUM_CRYSTAL_FREQ];
+extern const struct dpll_params dpll_ddr3_400MHz[NUM_CRYSTAL_FREQ];
 
 extern struct cm_wkuppll *const cmwkup;
 
@@ -112,5 +122,7 @@ void do_setup_dpll(const struct dpll_regs *, const struct dpll_params *);
 void prcm_init(void);
 void enable_basic_clocks(void);
 void do_enable_clocks(u32 *const *, u32 *const *, u8);
+void do_disable_clocks(u32 *const *, u32 *const *, u8);
 
+void set_mpu_spreadspectrum(int permille);
 #endif

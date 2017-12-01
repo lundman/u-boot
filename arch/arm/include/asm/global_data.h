@@ -8,15 +8,19 @@
 #ifndef	__ASM_GBL_DATA_H
 #define __ASM_GBL_DATA_H
 
-#ifdef CONFIG_OMAP
-#include <asm/omap_boot.h>
-#endif
-
 /* Architecture-specific global data */
 struct arch_global_data {
 #if defined(CONFIG_FSL_ESDHC)
 	u32 sdhc_clk;
 #endif
+
+#if defined(CONFIG_U_QE)
+	u32 qe_clk;
+	u32 brg_clk;
+	uint mp_alloc_base;
+	uint mp_alloc_top;
+#endif /* CONFIG_U_QE */
+
 #ifdef CONFIG_AT91FAMILY
 	/* "static data" needed by at91's clock.c */
 	unsigned long	cpu_clk_rate_hz;
@@ -28,17 +32,48 @@ struct arch_global_data {
 #endif
 	/* "static data" needed by most of timer.c on ARM platforms */
 	unsigned long timer_rate_hz;
-	unsigned long tbu;
-	unsigned long tbl;
+	unsigned int tbu;
+	unsigned int tbl;
 	unsigned long lastinc;
 	unsigned long long timer_reset_value;
 #if !(defined(CONFIG_SYS_ICACHE_OFF) && defined(CONFIG_SYS_DCACHE_OFF))
 	unsigned long tlb_addr;
 	unsigned long tlb_size;
+#if defined(CONFIG_ARM64)
+	unsigned long tlb_fillptr;
+	unsigned long tlb_emerg;
+#endif
+#endif
+#ifdef CONFIG_SYS_MEM_RESERVE_SECURE
+#define MEM_RESERVE_SECURE_SECURED	0x1
+#define MEM_RESERVE_SECURE_MAINTAINED	0x2
+#define MEM_RESERVE_SECURE_ADDR_MASK	(~0x3)
+	/*
+	 * Secure memory addr
+	 * This variable needs maintenance if the RAM base is not zero,
+	 * or if RAM splits into non-consecutive banks. It also has a
+	 * flag indicating the secure memory is marked as secure by MMU.
+	 * Flags used: 0x1 secured
+	 *             0x2 maintained
+	 */
+	phys_addr_t secure_ram;
+	unsigned long tlb_allocated;
+#endif
+#ifdef CONFIG_RESV_RAM
+	/*
+	 * Reserved RAM for memory resident, eg. Management Complex (MC)
+	 * driver which continues to run after U-Boot exits.
+	 */
+	phys_addr_t resv_ram;
 #endif
 
-#ifdef CONFIG_OMAP
-	struct omap_boot_parameters omap_boot_params;
+#ifdef CONFIG_ARCH_OMAP2PLUS
+	u32 omap_boot_device;
+	u32 omap_boot_mode;
+	u8 omap_ch_flags;
+#endif
+#if defined(CONFIG_FSL_LSCH3) && defined(CONFIG_SYS_FSL_HAS_DP_DDR)
+	unsigned long mem2_clk;
 #endif
 };
 

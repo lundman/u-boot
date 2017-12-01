@@ -14,9 +14,6 @@
 
 #include <configs/exynos4-common.h>
 
-#define CONFIG_SYS_PROMPT	"Odroid # "	/* Monitor Command Prompt */
-
-
 #define CONFIG_SYS_L2CACHE_OFF
 #ifndef CONFIG_SYS_L2CACHE_OFF
 #define CONFIG_SYS_L2_PL310
@@ -29,6 +26,9 @@
 #define CONFIG_SYS_SDRAM_BASE	0x40000000
 #define SDRAM_BANK_SIZE		(256 << 20)	/* 256 MB */
 #define PHYS_SDRAM_1		CONFIG_SYS_SDRAM_BASE
+/* Reserve the last 1 MiB for the secure firmware */
+#define CONFIG_SYS_MEM_TOP_HIDE		(1UL << 20UL)
+#define CONFIG_TZSW_RESERVED_DRAM_SIZE	CONFIG_SYS_MEM_TOP_HIDE
 
 /* memtest works on */
 #define CONFIG_SYS_MEMTEST_START	CONFIG_SYS_SDRAM_BASE
@@ -40,27 +40,17 @@
 
 /* select serial console configuration */
 #define CONFIG_SERIAL1
-#define CONFIG_BAUDRATE			115200
 
 /* Console configuration */
-#define CONFIG_SYS_CONSOLE_INFO_QUIET
-#define CONFIG_SYS_CONSOLE_IS_IN_ENV
 
-#define CONFIG_CMD_BOOTZ
-#define CONFIG_FIT
-#define CONFIG_FIT_VERBOSE
-#define CONFIG_BOOTARGS			"Please use defined boot"
 #define CONFIG_BOOTCOMMAND		"run autoboot"
-#define CONFIG_DEFAULT_CONSOLE		"console=ttySAC1,115200n8\0"
+#define CONFIG_DEFAULT_CONSOLE		"ttySAC1,115200n8"
 
 #define CONFIG_SYS_INIT_SP_ADDR	(CONFIG_SYS_LOAD_ADDR \
 					- GENERATED_GBL_DATA_SIZE)
 
-#define CONFIG_SYS_MEM_TOP_HIDE	(SZ_1M)	/* ram console */
-
 #define CONFIG_SYS_MONITOR_BASE	0x00000000
 
-#define CONFIG_ENV_IS_IN_MMC
 #define CONFIG_SYS_MMC_ENV_DEV		CONFIG_MMC_DEFAULT_DEV
 #define CONFIG_ENV_SIZE			4096
 #define CONFIG_ENV_OFFSET		(SZ_1K * 1280) /* 1.25 MiB offset */
@@ -110,11 +100,13 @@
  * 2.  ROOT:  -
 */
 #define CONFIG_EXTRA_ENV_SETTINGS \
-	"loadkernel=fatload mmc ${mmcbootdev}:${mmcbootpart} ${kerneladdr} " \
+	"loadbootscript=load mmc ${mmcbootdev}:${mmcbootpart} ${scriptaddr} " \
+		"boot.scr\0" \
+	"loadkernel=load mmc ${mmcbootdev}:${mmcbootpart} ${kerneladdr} " \
 		"${kernelname}\0" \
-	"loadinitrd=fatload mmc ${mmcbootdev}:${mmcbootpart} ${initrdaddr} " \
+	"loadinitrd=load mmc ${mmcbootdev}:${mmcbootpart} ${initrdaddr} " \
 		"${initrdname}\0" \
-	"loaddtb=fatload mmc ${mmcbootdev}:${mmcbootpart} ${fdtaddr} " \
+	"loaddtb=load mmc ${mmcbootdev}:${mmcbootpart} ${fdtaddr} " \
 		"${fdtfile}\0" \
 	"check_ramdisk=" \
 		"if run loadinitrd; then " \
@@ -131,6 +123,9 @@
 	"kernel_args=" \
 		"setenv bootargs root=/dev/mmcblk${mmcrootdev}p${mmcrootpart}" \
 		" rootwait ${console} ${opts}\0" \
+	"boot_script=" \
+		"run loadbootscript;" \
+		"source ${scriptaddr}\0" \
 	"boot_fit=" \
 		"setenv kerneladdr 0x42000000;" \
 		"setenv kernelname Image.itb;" \
@@ -154,14 +149,16 @@
 		"run kernel_args;" \
 		"bootz ${kerneladdr} ${initrd_addr} ${fdt_addr};\0" \
 	"autoboot=" \
-		"if test -e mmc 0 Image.itb; then; " \
+		"if test -e mmc 0 boot.scr; then; " \
+			"run boot_script; " \
+		"elif test -e mmc 0 Image.itb; then; " \
 			"run boot_fit;" \
 		"elif test -e mmc 0 zImage; then; " \
 			"run boot_zimg;" \
 		"elif test -e mmc 0 uImage; then; " \
 			"run boot_uimg;" \
 		"fi;\0" \
-	"console=" CONFIG_DEFAULT_CONSOLE \
+	"console=" CONFIG_DEFAULT_CONSOLE "\0" \
 	"mmcbootdev=0\0" \
 	"mmcbootpart=1\0" \
 	"mmcrootdev=0\0" \
@@ -173,30 +170,17 @@
 	"consoleoff=set console console=ram; save; reset\0" \
 	"initrdname=uInitrd\0" \
 	"initrdaddr=42000000\0" \
+	"scriptaddr=0x42000000\0" \
 	"fdtaddr=40800000\0"
 
-/* I2C */
-#define CONFIG_CMD_I2C
-#define CONFIG_SYS_I2C
-#define CONFIG_SYS_I2C_S3C24X0
-#define CONFIG_SYS_I2C_S3C24X0_SPEED	100000
-#define CONFIG_SYS_I2C_S3C24X0_SLAVE	0
-#define CONFIG_MAX_I2C_NUM		8
-#define CONFIG_SYS_I2C_INIT_BOARD
-
-/* POWER */
-#define CONFIG_POWER
-#define CONFIG_POWER_I2C
-#define CONFIG_POWER_MAX77686
-
 /* GPT */
-#define CONFIG_RANDOM_UUID
 
 /* Security subsystem - enable hw_rand() */
 #define CONFIG_EXYNOS_ACE_SHA
 #define CONFIG_LIB_HW_RAND
 
-#define CONFIG_CMD_GPIO
+/* USB */
+#define CONFIG_USB_EHCI_EXYNOS
 
 /*
  * Supported Odroid boards: X3, U3

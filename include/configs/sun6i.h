@@ -15,7 +15,14 @@
  * A31 specific configuration
  */
 
-#define CONFIG_SYS_PROMPT		"sun6i# "
+#ifdef CONFIG_USB_EHCI_HCD
+#define CONFIG_USB_EHCI_SUNXI
+#endif
+
+#define CONFIG_SUNXI_USB_PHYS	3
+
+#define CONFIG_ARMV7_SECURE_BASE	SUNXI_SRAM_B_BASE
+#define CONFIG_ARMV7_SECURE_MAX_SIZE    (64 * 1024) /* 64 KB */
 
 /*
  * Include common sunxi configuration where most the settings are

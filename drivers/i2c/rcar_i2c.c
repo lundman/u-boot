@@ -5,6 +5,9 @@
  * Copyright (C) 2013 Nobuhiro Iwamatsu <nobuhiro.iwamatsu.yj@renesas.com>
  *
  * SPDX-License-Identifier: GPL-2.0
+ *
+ * NOTE: This driver should be converted to driver model before June 2017.
+ * Please see doc/driver-model/i2c-howto.txt for instructions.
  */
 
 #include <common.h>
@@ -119,10 +122,10 @@ rcar_i2c_raw_read(struct rcar_i2c *dev, u8 chip, uint addr)
 
 	/* set slave address, receive */
 	writel((chip << 1) | 1, &dev->icmar);
-	/* clear status */
-	writel(0, &dev->icmsr);
 	/* start master receive */
 	writel(MCR_MDBS | MCR_MIE | MCR_ESG, &dev->icmcr);
+	/* clear status */
+	writel(0, &dev->icmsr);
 
 	while ((readl(&dev->icmsr) & (MSR_MAT | MSR_MDR))
 		!= (MSR_MAT | MSR_MDR))

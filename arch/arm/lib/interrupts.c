@@ -22,78 +22,10 @@
 #include <common.h>
 #include <asm/proc-armv/ptrace.h>
 #include <asm/u-boot-arm.h>
+#include <efi_loader.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
-#ifdef CONFIG_USE_IRQ
-int interrupt_init (void)
-{
-	unsigned long cpsr;
-
-	/*
-	 * setup up stacks if necessary
-	 */
-	IRQ_STACK_START = gd->irq_sp - 4;
-	IRQ_STACK_START_IN = gd->irq_sp + 8;
-	FIQ_STACK_START = IRQ_STACK_START - CONFIG_STACKSIZE_IRQ;
-
-
-	__asm__ __volatile__("mrs %0, cpsr\n"
-			     : "=r" (cpsr)
-			     :
-			     : "memory");
-
-	__asm__ __volatile__("msr cpsr_c, %0\n"
-			     "mov sp, %1\n"
-			     :
-			     : "r" (IRQ_MODE | I_BIT | F_BIT | (cpsr & ~FIQ_MODE)),
-			       "r" (IRQ_STACK_START)
-			     : "memory");
-
-	__asm__ __volatile__("msr cpsr_c, %0\n"
-			     "mov sp, %1\n"
-			     :
-			     : "r" (FIQ_MODE | I_BIT | F_BIT | (cpsr & ~IRQ_MODE)),
-			       "r" (FIQ_STACK_START)
-			     : "memory");
-
-	__asm__ __volatile__("msr cpsr_c, %0"
-			     :
-			     : "r" (cpsr)
-			     : "memory");
-
-	return arch_interrupt_init();
-}
-
-/* enable IRQ interrupts */
-void enable_interrupts (void)
-{
-	unsigned long temp;
-	__asm__ __volatile__("mrs %0, cpsr\n"
-			     "bic %0, %0, #0x80\n"
-			     "msr cpsr_c, %0"
-			     : "=r" (temp)
-			     :
-			     : "memory");
-}
-
-
-/*
- * disable IRQ/FIQ interrupts
- * returns true if interrupts had been enabled before we disabled them
- */
-int disable_interrupts (void)
-{
-	unsigned long old,temp;
-	__asm__ __volatile__("mrs %0, cpsr\n"
-			     "orr %1, %0, #0xc0\n"
-			     "msr cpsr_c, %1"
-			     : "=r" (old), "=r" (temp)
-			     :
-			     : "memory");
-	return (old & 0x80) == 0;
-}
-#else
 int interrupt_init (void)
 {
 	/*
@@ -112,8 +44,6 @@ int disable_interrupts (void)
 {
 	return 0;
 }
-#endif
-
 
 void bad_mode (void)
 {
@@ -123,8 +53,8 @@ void bad_mode (void)
 
 void show_regs (struct pt_regs *regs)
 {
-	unsigned long flags;
-	const char *processor_modes[] = {
+	unsigned long __maybe_unused flags;
+	const char __maybe_unused *processor_modes[] = {
 	"USER_26",	"FIQ_26",	"IRQ_26",	"SVC_26",
 	"UK4_26",	"UK5_26",	"UK6_26",	"UK7_26",
 	"UK8_26",	"UK9_26",	"UK10_26",	"UK11_26",
@@ -137,10 +67,15 @@ void show_regs (struct pt_regs *regs)
 
 	flags = condition_codes (regs);
 
-	printf ("pc : [<%08lx>]	   lr : [<%08lx>]\n"
-		"sp : %08lx  ip : %08lx	 fp : %08lx\n",
-		instruction_pointer (regs),
-		regs->ARM_lr, regs->ARM_sp, regs->ARM_ip, regs->ARM_fp);
+	printf("pc : [<%08lx>]	   lr : [<%08lx>]\n",
+	       instruction_pointer(regs), regs->ARM_lr);
+	if (gd->flags & GD_FLG_RELOC) {
+		printf("reloc pc : [<%08lx>]	   lr : [<%08lx>]\n",
+		       instruction_pointer(regs) - gd->reloc_off,
+		       regs->ARM_lr - gd->reloc_off);
+	}
+	printf("sp : %08lx  ip : %08lx	 fp : %08lx\n",
+	       regs->ARM_sp, regs->ARM_ip, regs->ARM_fp);
 	printf ("r10: %08lx  r9 : %08lx	 r8 : %08lx\n",
 		regs->ARM_r10, regs->ARM_r9, regs->ARM_r8);
 	printf ("r7 : %08lx  r6 : %08lx	 r5 : %08lx  r4 : %08lx\n",
@@ -158,53 +93,72 @@ void show_regs (struct pt_regs *regs)
 		thumb_mode (regs) ? " (T)" : "");
 }
 
+/* fixup PC to point to the instruction leading to the exception */
+static inline void fixup_pc(struct pt_regs *regs, int offset)
+{
+	uint32_t pc = instruction_pointer(regs) + offset;
+	regs->ARM_pc = pc | (regs->ARM_pc & PCMASK);
+}
+
 void do_undefined_instruction (struct pt_regs *pt_regs)
 {
+	efi_restore_gd();
 	printf ("undefined instruction\n");
+	fixup_pc(pt_regs, -4);
 	show_regs (pt_regs);
 	bad_mode ();
 }
 
 void do_software_interrupt (struct pt_regs *pt_regs)
 {
+	efi_restore_gd();
 	printf ("software interrupt\n");
+	fixup_pc(pt_regs, -4);
 	show_regs (pt_regs);
 	bad_mode ();
 }
 
 void do_prefetch_abort (struct pt_regs *pt_regs)
 {
+	efi_restore_gd();
 	printf ("prefetch abort\n");
+	fixup_pc(pt_regs, -8);
 	show_regs (pt_regs);
 	bad_mode ();
 }
 
 void do_data_abort (struct pt_regs *pt_regs)
 {
+	efi_restore_gd();
 	printf ("data abort\n");
+	fixup_pc(pt_regs, -8);
 	show_regs (pt_regs);
 	bad_mode ();
 }
 
 void do_not_used (struct pt_regs *pt_regs)
 {
+	efi_restore_gd();
 	printf ("not used\n");
+	fixup_pc(pt_regs, -8);
 	show_regs (pt_regs);
 	bad_mode ();
 }
 
 void do_fiq (struct pt_regs *pt_regs)
 {
+	efi_restore_gd();
 	printf ("fast interrupt request\n");
+	fixup_pc(pt_regs, -8);
 	show_regs (pt_regs);
 	bad_mode ();
 }
 
-#ifndef CONFIG_USE_IRQ
 void do_irq (struct pt_regs *pt_regs)
 {
+	efi_restore_gd();
 	printf ("interrupt request\n");
+	fixup_pc(pt_regs, -8);
 	show_regs (pt_regs);
 	bad_mode ();
 }
-#endif

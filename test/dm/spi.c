@@ -9,15 +9,15 @@
 #include <fdtdec.h>
 #include <spi.h>
 #include <spi_flash.h>
+#include <asm/state.h>
 #include <dm/device-internal.h>
 #include <dm/test.h>
 #include <dm/uclass-internal.h>
-#include <dm/ut.h>
 #include <dm/util.h>
-#include <asm/state.h>
+#include <test/ut.h>
 
 /* Test that we can find buses and chip-selects */
-static int dm_test_spi_find(struct dm_test_state *dms)
+static int dm_test_spi_find(struct unit_test_state *uts)
 {
 	struct sandbox_state *state = state_get_current();
 	struct spi_slave *slave;
@@ -30,14 +30,13 @@ static int dm_test_spi_find(struct dm_test_state *dms)
 						       false, &bus));
 
 	/*
-	 * spi_post_bind() will bind devices to chip selects. Check this then
-	 * remove the emulation and the slave device.
+	 * The post_bind() method will bind devices to chip selects. Check
+	 * this then remove the emulation and the slave device.
 	 */
 	ut_asserteq(0, uclass_get_device_by_seq(UCLASS_SPI, busnum, &bus));
 	ut_assertok(spi_cs_info(bus, cs, &info));
-	of_offset = info.dev->of_offset;
-	sandbox_sf_unbind_emul(state_get_current(), busnum, cs);
-	device_remove(info.dev);
+	of_offset = dev_of_offset(info.dev);
+	device_remove(info.dev, DM_REMOVE_NORMAL);
 	device_unbind(info.dev);
 
 	/*
@@ -45,7 +44,7 @@ static int dm_test_spi_find(struct dm_test_state *dms)
 	 * reports that CS 0 is present
 	 */
 	ut_assertok(spi_cs_info(bus, cs, &info));
-	ut_asserteq_ptr(info.dev, NULL);
+	ut_asserteq_ptr(NULL, info.dev);
 
 	/* This finds nothing because we removed the device */
 	ut_asserteq(-ENODEV, spi_find_bus_and_cs(busnum, cs, &bus, &dev));
@@ -62,8 +61,9 @@ static int dm_test_spi_find(struct dm_test_state *dms)
 	ut_asserteq(-ENOENT, spi_get_bus_and_cs(busnum, cs, speed, mode,
 						"spi_flash_std", "name", &bus,
 						&slave));
+	sandbox_sf_unbind_emul(state_get_current(), busnum, cs);
 	ut_assertok(spi_cs_info(bus, cs, &info));
-	ut_asserteq_ptr(info.dev, NULL);
+	ut_asserteq_ptr(NULL, info.dev);
 
 	/* Add the emulation and try again */
 	ut_assertok(sandbox_sf_bind_emul(state, busnum, cs, bus, of_offset,
@@ -95,7 +95,7 @@ static int dm_test_spi_find(struct dm_test_state *dms)
 DM_TEST(dm_test_spi_find, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
 
 /* Test that sandbox SPI works correctly */
-static int dm_test_spi_xfer(struct dm_test_state *dms)
+static int dm_test_spi_xfer(struct unit_test_state *uts)
 {
 	struct spi_slave *slave;
 	struct udevice *bus;

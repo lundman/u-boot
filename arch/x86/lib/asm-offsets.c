@@ -17,6 +17,10 @@
 
 int main(void)
 {
-	DEFINE(GENERATED_GD_RELOC_OFF, offsetof(gd_t, reloc_off));
+	DEFINE(GD_BIST, offsetof(gd_t, arch.bist));
+#ifdef CONFIG_HAVE_FSP
+	DEFINE(GD_HOB_LIST, offsetof(gd_t, arch.hob_list));
+#endif
+	DEFINE(GD_TABLE, offsetof(gd_t, arch.table));
 	return 0;
 }

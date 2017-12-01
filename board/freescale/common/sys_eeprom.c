@@ -90,7 +90,7 @@ static void show_eeprom(void)
 	/* EEPROM tag ID, either CCID or NXID */
 #ifdef CONFIG_SYS_I2C_EEPROM_NXID
 	printf("ID: %c%c%c%c v%u\n", e.id[0], e.id[1], e.id[2], e.id[3],
-		be32_to_cpu(e.version));
+	       be32_to_cpu(e.version));
 #else
 	printf("ID: %c%c%c%c\n", e.id[0], e.id[1], e.id[2], e.id[3]);
 #endif
@@ -114,7 +114,7 @@ static void show_eeprom(void)
 		e.date[3] & 0x80 ? "PM" : "");
 
 	/* Show MAC addresses  */
-	for (i = 0; i < min(e.mac_count, MAX_NUM_PORTS); i++) {
+	for (i = 0; i < min(e.mac_count, (u8)MAX_NUM_PORTS); i++) {
 
 		u8 *p = e.mac[i];
 
@@ -223,7 +223,7 @@ static int prog_eeprom(void)
 	 */
 	for (i = 0, p = &e; i < sizeof(e); i += 8, p += 8) {
 		ret = i2c_write(CONFIG_SYS_I2C_EEPROM_ADDR, i, CONFIG_SYS_I2C_EEPROM_ADDR_LEN,
-			p, min((sizeof(e) - i), 8));
+				p, min((int)(sizeof(e) - i), 8));
 		if (ret)
 			break;
 		udelay(5000);	/* 5ms write cycle timing */
@@ -340,7 +340,7 @@ int do_mac(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 	if (cmd == 'i') {
 #ifdef CONFIG_SYS_I2C_EEPROM_NXID
 		memcpy(e.id, "NXID", sizeof(e.id));
-		e.version = NXID_VERSION;
+		e.version = cpu_to_be32(NXID_VERSION);
 #else
 		memcpy(e.id, "CCID", sizeof(e.id));
 #endif
@@ -461,7 +461,7 @@ int mac_read_from_eeprom(void)
 		memset(e.mac[8], 0xff, 6);
 #endif
 
-	for (i = 0; i < min(e.mac_count, MAX_NUM_PORTS); i++) {
+	for (i = 0; i < min(e.mac_count, (u8)MAX_NUM_PORTS); i++) {
 		if (memcmp(&e.mac[i], "\0\0\0\0\0\0", 6) &&
 		    memcmp(&e.mac[i], "\xFF\xFF\xFF\xFF\xFF\xFF", 6)) {
 			char ethaddr[18];
@@ -478,14 +478,14 @@ int mac_read_from_eeprom(void)
 			/* Only initialize environment variables that are blank
 			 * (i.e. have not yet been set)
 			 */
-			if (!getenv(enetvar))
-				setenv(enetvar, ethaddr);
+			if (!env_get(enetvar))
+				env_set(enetvar, ethaddr);
 		}
 	}
 
 #ifdef CONFIG_SYS_I2C_EEPROM_NXID
 	printf("%c%c%c%c v%u\n", e.id[0], e.id[1], e.id[2], e.id[3],
-		be32_to_cpu(e.version));
+	       be32_to_cpu(e.version));
 #else
 	printf("%c%c%c%c\n", e.id[0], e.id[1], e.id[2], e.id[3]);
 #endif
@@ -496,7 +496,7 @@ int mac_read_from_eeprom(void)
 	 * that at boot time, U-Boot will still say "NXID v0".
 	 */
 	if (e.version == 0) {
-		e.version = NXID_VERSION;
+		e.version = cpu_to_be32(NXID_VERSION);
 		update_crc();
 	}
 #endif

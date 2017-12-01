@@ -44,6 +44,11 @@ def LogCmd(commit_range, git_dir=None, oneline=False, reverse=False,
         cmd.append('-n%d' % count)
     if commit_range:
         cmd.append(commit_range)
+
+    # Add this in case we have a branch with the same name as a directory.
+    # This avoids messages like this, for example:
+    #   fatal: ambiguous argument 'test': both revision and filename
+    cmd.append('--')
     return cmd
 
 def CountCommitsToBranch():
@@ -61,6 +66,52 @@ def CountCommitsToBranch():
     patch_count = int(stdout)
     return patch_count
 
+def NameRevision(commit_hash):
+    """Gets the revision name for a commit
+
+    Args:
+        commit_hash: Commit hash to look up
+
+    Return:
+        Name of revision, if any, else None
+    """
+    pipe = ['git', 'name-rev', commit_hash]
+    stdout = command.RunPipe([pipe], capture=True, oneline=True).stdout
+
+    # We expect a commit, a space, then a revision name
+    name = stdout.split(' ')[1].strip()
+    return name
+
+def GuessUpstream(git_dir, branch):
+    """Tries to guess the upstream for a branch
+
+    This lists out top commits on a branch and tries to find a suitable
+    upstream. It does this by looking for the first commit where
+    'git name-rev' returns a plain branch name, with no ! or ^ modifiers.
+
+    Args:
+        git_dir: Git directory containing repo
+        branch: Name of branch
+
+    Returns:
+        Tuple:
+            Name of upstream branch (e.g. 'upstream/master') or None if none
+            Warning/error message, or None if none
+    """
+    pipe = [LogCmd(branch, git_dir=git_dir, oneline=True, count=100)]
+    result = command.RunPipe(pipe, capture=True, capture_stderr=True,
+                             raise_on_error=False)
+    if result.return_code:
+        return None, "Branch '%s' not found" % branch
+    for line in result.stdout.splitlines()[1:]:
+        commit_hash = line.split(' ')[0]
+        name = NameRevision(commit_hash)
+        if '~' not in name and '^' not in name:
+            if name.startswith('remotes/'):
+                name = name[8:]
+            return name, "Guessing upstream as '%s'" % name
+    return None, "Cannot find a suitable upstream for branch '%s'" % branch
+
 def GetUpstream(git_dir, branch):
     """Returns the name of the upstream for a branch
 
@@ -69,7 +120,9 @@ def GetUpstream(git_dir, branch):
         branch: Name of branch
 
     Returns:
-        Name of upstream branch (e.g. 'upstream/master') or None if none
+        Tuple:
+            Name of upstream branch (e.g. 'upstream/master') or None if none
+            Warning/error message, or None if none
     """
     try:
         remote = command.OutputOneLine('git', '--git-dir', git_dir, 'config',
@@ -77,15 +130,16 @@ def GetUpstream(git_dir, branch):
         merge = command.OutputOneLine('git', '--git-dir', git_dir, 'config',
                                       'branch.%s.merge' % branch)
     except:
-        return None
+        upstream, msg = GuessUpstream(git_dir, branch)
+        return upstream, msg
 
     if remote == '.':
-        return merge
+        return merge, None
     elif remote and merge:
         leaf = merge.split('/')[-1]
-        return '%s/%s' % (remote, leaf)
+        return '%s/%s' % (remote, leaf), None
     else:
-        raise ValueError, ("Cannot determine upstream branch for branch "
+        raise ValueError("Cannot determine upstream branch for branch "
                 "'%s' remote='%s', merge='%s'" % (branch, remote, merge))
 
 
@@ -99,10 +153,29 @@ def GetRangeInBranch(git_dir, branch, include_upstream=False):
         Expression in the form 'upstream..branch' which can be used to
         access the commits. If the branch does not exist, returns None.
     """
-    upstream = GetUpstream(git_dir, branch)
+    upstream, msg = GetUpstream(git_dir, branch)
     if not upstream:
-        return None
-    return '%s%s..%s' % (upstream, '~' if include_upstream else '', branch)
+        return None, msg
+    rstr = '%s%s..%s' % (upstream, '~' if include_upstream else '', branch)
+    return rstr, msg
+
+def CountCommitsInRange(git_dir, range_expr):
+    """Returns the number of commits in the given range.
+
+    Args:
+        git_dir: Directory containing git repo
+        range_expr: Range to check
+    Return:
+        Number of patches that exist in the supplied rangem or None if none
+        were found
+    """
+    pipe = [LogCmd(range_expr, git_dir=git_dir, oneline=True)]
+    result = command.RunPipe(pipe, capture=True, capture_stderr=True,
+                             raise_on_error=False)
+    if result.return_code:
+        return None, "Range '%s' not found or is invalid" % range_expr
+    patch_count = len(result.stdout.splitlines())
+    return patch_count, None
 
 def CountCommitsInBranch(git_dir, branch, include_upstream=False):
     """Returns the number of commits in the given branch.
@@ -114,14 +187,10 @@ def CountCommitsInBranch(git_dir, branch, include_upstream=False):
         Number of patches that exist on top of the branch, or None if the
         branch does not exist.
     """
-    range_expr = GetRangeInBranch(git_dir, branch, include_upstream)
+    range_expr, msg = GetRangeInBranch(git_dir, branch, include_upstream)
     if not range_expr:
-        return None
-    pipe = [LogCmd(range_expr, git_dir=git_dir, oneline=True),
-            ['wc', '-l']]
-    result = command.RunPipe(pipe, capture=True, oneline=True)
-    patch_count = int(result.stdout)
-    return patch_count
+        return None, msg
+    return CountCommitsInRange(git_dir, range_expr)
 
 def CountCommits(commit_range):
     """Returns the number of commits in the given range.
@@ -155,7 +224,7 @@ def Checkout(commit_hash, git_dir=None, work_tree=None, force=False):
     result = command.RunPipe([pipe], capture=True, raise_on_error=False,
                              capture_stderr=True)
     if result.return_code != 0:
-        raise OSError, 'git checkout (%s): %s' % (pipe, result.stderr)
+        raise OSError('git checkout (%s): %s' % (pipe, result.stderr))
 
 def Clone(git_dir, output_dir):
     """Checkout the selected commit for this build
@@ -167,7 +236,7 @@ def Clone(git_dir, output_dir):
     result = command.RunPipe([pipe], capture=True, cwd=output_dir,
                              capture_stderr=True)
     if result.return_code != 0:
-        raise OSError, 'git clone: %s' % result.stderr
+        raise OSError('git clone: %s' % result.stderr)
 
 def Fetch(git_dir=None, work_tree=None):
     """Fetch from the origin repo
@@ -183,7 +252,7 @@ def Fetch(git_dir=None, work_tree=None):
     pipe.append('fetch')
     result = command.RunPipe([pipe], capture=True, capture_stderr=True)
     if result.return_code != 0:
-        raise OSError, 'git fetch: %s' % result.stderr
+        raise OSError('git fetch: %s' % result.stderr)
 
 def CreatePatches(start, count, series):
     """Create a series of patches from the top of the current branch.
@@ -264,7 +333,7 @@ def BuildEmailList(in_list, tag=None, alias=None, raise_on_error=True):
     return result
 
 def EmailPatches(series, cover_fname, args, dry_run, raise_on_error, cc_fname,
-        self_only=False, alias=None, in_reply_to=None):
+        self_only=False, alias=None, in_reply_to=None, thread=False):
     """Email a patch series.
 
     Args:
@@ -278,6 +347,8 @@ def EmailPatches(series, cover_fname, args, dry_run, raise_on_error, cc_fname,
         self_only: True to just email to yourself as a test
         in_reply_to: If set we'll pass this to git as --in-reply-to.
             Should be a message ID that this is in reply to.
+        thread: True to add --thread to git send-email (make
+            all patches reply to cover-letter or first patch in series)
 
     Returns:
         Git command that was/would be run
@@ -320,7 +391,8 @@ def EmailPatches(series, cover_fname, args, dry_run, raise_on_error, cc_fname,
     """
     to = BuildEmailList(series.get('to'), '--to', alias, raise_on_error)
     if not to:
-        git_config_to = command.Output('git', 'config', 'sendemail.to')
+        git_config_to = command.Output('git', 'config', 'sendemail.to',
+                                       raise_on_error=False)
         if not git_config_to:
             print ("No recipient.\n"
                    "Please add something like this to a commit\n"
@@ -328,13 +400,18 @@ def EmailPatches(series, cover_fname, args, dry_run, raise_on_error, cc_fname,
                    "Or do something like this\n"
                    "git config sendemail.to u-boot@lists.denx.de")
             return
-    cc = BuildEmailList(series.get('cc'), '--cc', alias, raise_on_error)
+    cc = BuildEmailList(list(set(series.get('cc')) - set(series.get('to'))),
+                        '--cc', alias, raise_on_error)
     if self_only:
         to = BuildEmailList([os.getenv('USER')], '--to', alias, raise_on_error)
         cc = []
     cmd = ['git', 'send-email', '--annotate']
     if in_reply_to:
+        if type(in_reply_to) != str:
+            in_reply_to = in_reply_to.encode('utf-8')
         cmd.append('--in-reply-to="%s"' % in_reply_to)
+    if thread:
+        cmd.append('--thread')
 
     cmd += to
     cmd += cc
@@ -342,10 +419,10 @@ def EmailPatches(series, cover_fname, args, dry_run, raise_on_error, cc_fname,
     if cover_fname:
         cmd.append(cover_fname)
     cmd += args
-    str = ' '.join(cmd)
+    cmdstr = ' '.join(cmd)
     if not dry_run:
-        os.system(str)
-    return str
+        os.system(cmdstr)
+    return cmdstr
 
 
 def LookupEmail(lookup_name, alias=None, raise_on_error=True, level=0):
@@ -414,18 +491,18 @@ def LookupEmail(lookup_name, alias=None, raise_on_error=True, level=0):
     if level > 10:
         msg = "Recursive email alias at '%s'" % lookup_name
         if raise_on_error:
-            raise OSError, msg
+            raise OSError(msg)
         else:
-            print col.Color(col.RED, msg)
+            print(col.Color(col.RED, msg))
             return out_list
 
     if lookup_name:
         if not lookup_name in alias:
             msg = "Alias '%s' not found" % lookup_name
             if raise_on_error:
-                raise ValueError, msg
+                raise ValueError(msg)
             else:
-                print col.Color(col.RED, msg)
+                print(col.Color(col.RED, msg))
                 return out_list
         for item in alias[lookup_name]:
             todo = LookupEmail(item, alias, raise_on_error, level + 1)
@@ -433,7 +510,7 @@ def LookupEmail(lookup_name, alias=None, raise_on_error=True, level=0):
                 if not new_item in out_list:
                     out_list.append(new_item)
 
-    #print "No match for alias '%s'" % lookup_name
+    #print("No match for alias '%s'" % lookup_name)
     return out_list
 
 def GetTopLevel():
@@ -479,6 +556,17 @@ def GetDefaultUserEmail():
     """
     uemail = command.OutputOneLine('git', 'config', '--global', 'user.email')
     return uemail
+
+def GetDefaultSubjectPrefix():
+    """Gets the format.subjectprefix from local .git/config file.
+
+    Returns:
+        Subject prefix found in local .git/config file, or None if none
+    """
+    sub_prefix = command.OutputOneLine('git', 'config', 'format.subjectprefix',
+                 raise_on_error=False)
+
+    return sub_prefix
 
 def Setup():
     """Set up git utils, by reading the alias files."""

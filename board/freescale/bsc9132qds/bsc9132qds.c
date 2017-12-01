@@ -21,6 +21,9 @@
 #include <hwconfig.h>
 #include <i2c.h>
 #include <fsl_ddr_sdram.h>
+#include <jffs2/load_kernel.h>
+#include <mtd_node.h>
+#include <flash.h>
 
 #ifdef CONFIG_PCI
 #include <pci.h>
@@ -33,9 +36,9 @@ DECLARE_GLOBAL_DATA_PTR;
 
 int board_early_init_f(void)
 {
-	struct fsl_ifc *ifc = (void *)CONFIG_SYS_IFC_ADDR;
+	struct fsl_ifc ifc = {(void *)CONFIG_SYS_IFC_ADDR, (void *)NULL};
 
-	setbits_be32(&ifc->ifc_gcr, 1 << IFC_GCR_TBCTL_TRN_TIME_SHIFT);
+	setbits_be32(&ifc.gregs->ifc_gcr, 1 << IFC_GCR_TBCTL_TRN_TIME_SHIFT);
 
 	return 0;
 }
@@ -148,7 +151,7 @@ void dsp_ddr_configure(void)
 
 int board_early_init_r(void)
 {
-#ifndef CONFIG_SYS_NO_FLASH
+#ifdef CONFIG_MTD_NOR_FLASH
 	const unsigned int flashbase = CONFIG_SYS_FLASH_BASE;
 	int flash_esel = find_tlb_idx((void *)flashbase, 1);
 
@@ -224,9 +227,9 @@ int checkboard(void)
 	return 0;
 }
 
-#ifdef CONFIG_TSEC_ENET
 int board_eth_init(bd_t *bis)
 {
+#ifdef CONFIG_TSEC_ENET
 	struct fsl_pq_mdio_info mdio_info;
 	struct tsec_info_struct tsec_info[4];
 	int num = 0;
@@ -247,6 +250,7 @@ int board_eth_init(bd_t *bis)
 
 	fsl_pq_mdio_init(bis, &mdio_info);
 	tsec_eth_init(bis, tsec_info, num);
+#endif
 
 	#ifdef CONFIG_PCI
 	pci_eth_init(bis);
@@ -254,7 +258,6 @@ int board_eth_init(bd_t *bis)
 
 	return 0;
 }
-#endif
 
 #define USBMUX_SEL_MASK		0xc0
 #define USBMUX_SEL_UART2	0xc0
@@ -354,21 +357,30 @@ void fdt_del_node_compat(void *blob, const char *compatible)
 }
 
 #if defined(CONFIG_OF_BOARD_SETUP)
-void ft_board_setup(void *blob, bd_t *bd)
+#ifdef CONFIG_FDT_FIXUP_PARTITIONS
+struct node_info nodes[] = {
+	{ "cfi-flash",			MTD_DEV_TYPE_NOR,  },
+	{ "fsl,ifc-nand",		MTD_DEV_TYPE_NAND, },
+};
+#endif
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	phys_addr_t base;
 	phys_size_t size;
 
 	ft_cpu_setup(blob, bd);
 
-	base = getenv_bootm_low();
-	size = getenv_bootm_size();
+	base = env_get_bootm_low();
+	size = env_get_bootm_size();
 
 	#if defined(CONFIG_PCI)
 	FT_FSL_PCI_SETUP;
 	#endif
 
 	fdt_fixup_memory(blob, (u64)base, (u64)size);
+#ifdef CONFIG_FDT_FIXUP_PARTITIONS
+	fdt_fixup_mtdparts(blob, nodes, ARRAY_SIZE(nodes));
+#endif
 
 	ccsr_gur_t *gur = (void *)(CONFIG_SYS_MPC85xx_GUTS_ADDR);
 	u32 porbmsr = in_be32(&gur->porbmsr);
@@ -382,7 +394,7 @@ void ft_board_setup(void *blob, bd_t *bd)
 			/* remove dts usb node */
 			fdt_del_node_compat(blob, "fsl-usb2-dr");
 		} else {
-			fdt_fixup_dr_usb(blob, bd);
+			fsl_fdt_fixup_dr_usb(blob, bd);
 			fdt_del_node_and_alias(blob, "serial2");
 		}
 	}
@@ -411,5 +423,7 @@ void ft_board_setup(void *blob, bd_t *bd)
 			printf("\nRemove sim from hwconfig and reset\n");
 		}
 	}
+
+	return 0;
 }
 #endif

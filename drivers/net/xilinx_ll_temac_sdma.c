@@ -55,65 +55,6 @@ struct rtx_cdmac_bd {
  */
 static struct rtx_cdmac_bd cdmac_bd __aligned(32);
 
-#if defined(CONFIG_XILINX_440) || defined(CONFIG_XILINX_405)
-
-/*
- * Indirect DCR access operations mi{ft}dcr_xilinx() espacialy
- * for Xilinx PowerPC implementations on FPGA.
- *
- * FIXME: This part should go up to arch/powerpc -- but where?
- */
-#include <asm/processor.h>
-#define XILINX_INDIRECT_DCR_ADDRESS_REG	0
-#define XILINX_INDIRECT_DCR_ACCESS_REG	1
-inline unsigned mifdcr_xilinx(const unsigned dcrn)
-{
-	mtdcr(XILINX_INDIRECT_DCR_ADDRESS_REG, dcrn);
-	return mfdcr(XILINX_INDIRECT_DCR_ACCESS_REG);
-}
-inline void mitdcr_xilinx(const unsigned dcrn, int val)
-{
-	mtdcr(XILINX_INDIRECT_DCR_ADDRESS_REG, dcrn);
-	mtdcr(XILINX_INDIRECT_DCR_ACCESS_REG, val);
-}
-
-/* Xilinx Device Control Register (DCR) in/out accessors */
-inline unsigned ll_temac_xldcr_in32(phys_addr_t addr)
-{
-	return mifdcr_xilinx((const unsigned)addr);
-}
-inline void ll_temac_xldcr_out32(phys_addr_t addr, unsigned value)
-{
-	mitdcr_xilinx((const unsigned)addr, value);
-}
-
-void ll_temac_collect_xldcr_sdma_reg_addr(struct eth_device *dev)
-{
-	struct ll_temac *ll_temac = dev->priv;
-	phys_addr_t dmac_ctrl = ll_temac->ctrladdr;
-	phys_addr_t *ra = ll_temac->sdma_reg_addr;
-
-	ra[TX_NXTDESC_PTR]   = dmac_ctrl + TX_NXTDESC_PTR;
-	ra[TX_CURBUF_ADDR]   = dmac_ctrl + TX_CURBUF_ADDR;
-	ra[TX_CURBUF_LENGTH] = dmac_ctrl + TX_CURBUF_LENGTH;
-	ra[TX_CURDESC_PTR]   = dmac_ctrl + TX_CURDESC_PTR;
-	ra[TX_TAILDESC_PTR]  = dmac_ctrl + TX_TAILDESC_PTR;
-	ra[TX_CHNL_CTRL]     = dmac_ctrl + TX_CHNL_CTRL;
-	ra[TX_IRQ_REG]       = dmac_ctrl + TX_IRQ_REG;
-	ra[TX_CHNL_STS]      = dmac_ctrl + TX_CHNL_STS;
-	ra[RX_NXTDESC_PTR]   = dmac_ctrl + RX_NXTDESC_PTR;
-	ra[RX_CURBUF_ADDR]   = dmac_ctrl + RX_CURBUF_ADDR;
-	ra[RX_CURBUF_LENGTH] = dmac_ctrl + RX_CURBUF_LENGTH;
-	ra[RX_CURDESC_PTR]   = dmac_ctrl + RX_CURDESC_PTR;
-	ra[RX_TAILDESC_PTR]  = dmac_ctrl + RX_TAILDESC_PTR;
-	ra[RX_CHNL_CTRL]     = dmac_ctrl + RX_CHNL_CTRL;
-	ra[RX_IRQ_REG]       = dmac_ctrl + RX_IRQ_REG;
-	ra[RX_CHNL_STS]      = dmac_ctrl + RX_CHNL_STS;
-	ra[DMA_CONTROL_REG]  = dmac_ctrl + DMA_CONTROL_REG;
-}
-
-#endif /* CONFIG_XILINX_440 || ONFIG_XILINX_405 */
-
 /* Xilinx Processor Local Bus (PLB) in/out accessors */
 inline unsigned ll_temac_xlplb_in32(phys_addr_t addr)
 {
@@ -180,7 +121,7 @@ int ll_temac_init_sdma(struct eth_device *dev)
 		memset(rx_dp, 0, sizeof(*rx_dp));
 		rx_dp->next_p = rx_dp;
 		rx_dp->buf_len = PKTSIZE_ALIGN;
-		rx_dp->phys_buf_p = (u8 *)NetRxPackets[i];
+		rx_dp->phys_buf_p = (u8 *)net_rx_packets[i];
 		flush_cache((u32)rx_dp->phys_buf_p, PKTSIZE_ALIGN);
 	}
 	flush_cache((u32)cdmac_bd.rx, sizeof(cdmac_bd.rx));
@@ -316,7 +257,7 @@ int ll_temac_recv_sdma(struct eth_device *dev)
 	ll_temac->out32(ra[RX_TAILDESC_PTR], (int)&cdmac_bd.rx[rx_idx]);
 
 	if (length > 0 && pb_idx != -1)
-		NetReceive(NetRxPackets[pb_idx], length);
+		net_process_received_packet(net_rx_packets[pb_idx], length);
 
 	return 0;
 }

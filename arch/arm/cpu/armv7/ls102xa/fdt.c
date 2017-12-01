@@ -15,6 +15,8 @@
 #include <fsl_esdhc.h>
 #endif
 #include <tsec.h>
+#include <asm/arch/immap_ls102xa.h>
+#include <fsl_sec.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -27,29 +29,26 @@ void ft_fixup_enet_phy_connect_type(void *fdt)
 	char phy[16];
 	int phy_node;
 	int i = 0;
-	int enet_id = 0;
 	uint32_t ph;
+	char *name[3] = { "eTSEC1", "eTSEC2", "eTSEC3" };
 
-	while ((dev = eth_get_dev_by_index(i++)) != NULL) {
-		if (strstr(dev->name, "eTSEC1"))
-			enet_id = 0;
-		else if (strstr(dev->name, "eTSEC2"))
-			enet_id = 1;
-		else if (strstr(dev->name, "eTSEC3"))
-			enet_id = 2;
-		else
+	for (; i < ARRAY_SIZE(name); i++) {
+		dev = eth_get_dev_by_name(name[i]);
+		if (dev) {
+			sprintf(enet, "ethernet%d", i);
+			sprintf(phy, "enet%d_rgmii_phy", i);
+		} else {
 			continue;
+		}
 
 		priv = dev->priv;
 		if (priv->flags & TSEC_SGMII)
 			continue;
 
-		sprintf(enet, "ethernet%d", enet_id);
 		enet_path = fdt_get_alias(fdt, enet);
 		if (!enet_path)
 			continue;
 
-		sprintf(phy, "enet%d_rgmii_phy", enet_id);
 		phy_path = fdt_get_alias(fdt, phy);
 		if (!phy_path)
 			continue;
@@ -77,10 +76,23 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 	int off;
 	int val;
 	const char *sysclk_path;
+	struct ccsr_gur __iomem *gur = (void *)(CONFIG_SYS_FSL_GUTS_ADDR);
+	unsigned int svr;
+	svr = in_be32(&gur->svr);
 
 	unsigned long busclk = get_bus_freq(0);
 
-	fdt_fixup_ethernet(blob);
+	/* delete crypto node if not on an E-processor */
+	if (!IS_E_PROCESSOR(svr))
+		fdt_fixup_crypto_node(blob, 0);
+#if CONFIG_SYS_FSL_SEC_COMPAT >= 4
+	else {
+		ccsr_sec_t __iomem *sec;
+
+		sec = (void __iomem *)CONFIG_SYS_FSL_SEC_ADDR;
+		fdt_fixup_crypto_node(blob, sec_in32(&sec->secvid_ms));
+	}
+#endif
 
 	off = fdt_node_offset_by_prop_value(blob, -1, "device_type", "cpu", 4);
 	while (off != -FDT_ERR_NOTFOUND) {
@@ -91,7 +103,7 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 	}
 
 	do_fixup_by_prop_u32(blob, "device_type", "soc",
-			     4, "bus-frequency", busclk / 2, 1);
+			     4, "bus-frequency", busclk, 1);
 
 	ft_fixup_enet_phy_connect_type(blob);
 
@@ -106,6 +118,25 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 				     CONFIG_SYS_CLK_FREQ, 1);
 	do_fixup_by_compat_u32(blob, "fsl,qoriq-sysclk-2.0",
 			       "clock-frequency", CONFIG_SYS_CLK_FREQ, 1);
+
+#if defined(CONFIG_DEEP_SLEEP) && defined(CONFIG_SD_BOOT)
+#define UBOOT_HEAD_LEN	0x1000
+	/*
+	 * Reserved memory in SD boot deep sleep case.
+	 * Second stage uboot binary and malloc space should be reserved.
+	 * If the memory they occupied has not been reserved, then this
+	 * space would be used by kernel and overwritten in uboot when
+	 * deep sleep resume, which cause deep sleep failed.
+	 * Since second uboot binary has a head, that space need to be
+	 * reserved either(assuming its size is less than 0x1000).
+	 */
+	off = fdt_add_mem_rsv(blob, CONFIG_SYS_TEXT_BASE - UBOOT_HEAD_LEN,
+			CONFIG_SYS_MONITOR_LEN + CONFIG_SYS_SPL_MALLOC_SIZE +
+			UBOOT_HEAD_LEN);
+	if (off < 0)
+		printf("Failed to reserve memory for SD boot deep sleep: %s\n",
+		       fdt_strerror(off));
+#endif
 
 #if defined(CONFIG_FSL_ESDHC)
 	fdt_fixup_esdhc(blob, bd);
@@ -133,4 +164,17 @@ void ft_cpu_setup(void *blob, bd_t *bd)
 
 	do_fixup_by_compat_u32(blob, "fsl, ls1021a-flexcan",
 			       "clock-frequency", busclk / 2, 1);
+
+#if defined(CONFIG_QSPI_BOOT) || defined(CONFIG_SD_BOOT_QSPI)
+	off = fdt_node_offset_by_compat_reg(blob, FSL_IFC_COMPAT,
+					    CONFIG_SYS_IFC_ADDR);
+	fdt_set_node_status(blob, off, FDT_STATUS_DISABLED, 0);
+#else
+	off = fdt_node_offset_by_compat_reg(blob, FSL_QSPI_COMPAT,
+					    QSPI0_BASE_ADDR);
+	fdt_set_node_status(blob, off, FDT_STATUS_DISABLED, 0);
+	off = fdt_node_offset_by_compat_reg(blob, FSL_DSPI_COMPAT,
+					    DSPI1_BASE_ADDR);
+	fdt_set_node_status(blob, off, FDT_STATUS_DISABLED, 0);
+#endif
 }

@@ -39,50 +39,6 @@ struct i2c_bus_hose i2c_bus[CONFIG_SYS_NUM_I2C_BUSES] =
 
 DECLARE_GLOBAL_DATA_PTR;
 
-void i2c_reloc_fixup(void)
-{
-#if defined(CONFIG_NEEDS_MANUAL_RELOC)
-	struct i2c_adapter *i2c_adap_p = ll_entry_start(struct i2c_adapter,
-						i2c);
-	struct i2c_adapter *tmp = i2c_adap_p;
-	int max = ll_entry_count(struct i2c_adapter, i2c);
-	int		i;
-	unsigned long	addr;
-
-	if (gd->reloc_off == 0)
-		return;
-
-	for (i = 0; i < max; i++) {
-		/* i2c_init() */
-		addr = (unsigned long)i2c_adap_p->init;
-		addr += gd->reloc_off;
-		i2c_adap_p->init = (void *)addr;
-		/* i2c_probe() */
-		addr = (unsigned long)i2c_adap_p->probe;
-		addr += gd->reloc_off;
-		i2c_adap_p->probe = (void *)addr;
-		/* i2c_read() */
-		addr = (unsigned long)i2c_adap_p->read;
-		addr += gd->reloc_off;
-		i2c_adap_p->read = (void *)addr;
-		/* i2c_write() */
-		addr = (unsigned long)i2c_adap_p->write;
-		addr += gd->reloc_off;
-		i2c_adap_p->write = (void *)addr;
-		/* i2c_set_bus_speed() */
-		addr = (unsigned long)i2c_adap_p->set_bus_speed;
-		addr += gd->reloc_off;
-		i2c_adap_p->set_bus_speed = (void *)addr;
-		/* name */
-		addr = (unsigned long)i2c_adap_p->name;
-		addr += gd->reloc_off;
-		i2c_adap_p->name = (char *)addr;
-		tmp++;
-		i2c_adap_p = tmp;
-	}
-#endif
-}
-
 #ifndef CONFIG_SYS_I2C_DIRECT_BUS
 /*
  * i2c_mux_set()
@@ -174,11 +130,11 @@ static int i2c_mux_set_all(void)
 	return 0;
 }
 
-static int i2c_mux_disconnet_all(void)
+static int i2c_mux_disconnect_all(void)
 {
 	struct	i2c_bus_hose *i2c_bus_tmp = &i2c_bus[I2C_BUS];
 	int	i;
-	uint8_t	buf;
+	uint8_t	buf = 0;
 
 	if (I2C_ADAP->init_done == 0)
 		return 0;
@@ -197,7 +153,7 @@ static int i2c_mux_disconnet_all(void)
 
 			ret = I2C_ADAP->write(I2C_ADAP, chip, 0, 0, &buf, 1);
 			if (ret != 0) {
-				printf("i2c: mux diconnect error\n");
+				printf("i2c: mux disconnect error\n");
 				return ret;
 			}
 		} while (i > 0);
@@ -230,6 +186,11 @@ static void i2c_init_bus(unsigned int bus_no, int speed, int slaveaddr)
 
 /* implement possible board specific board init */
 __weak void i2c_init_board(void)
+{
+}
+
+/* implement possible for i2c specific early i2c init */
+__weak void i2c_early_init_f(void)
 {
 }
 
@@ -293,7 +254,7 @@ int i2c_set_bus_num(unsigned int bus)
 	}
 
 #ifndef CONFIG_SYS_I2C_DIRECT_BUS
-	i2c_mux_disconnet_all();
+	i2c_mux_disconnect_all();
 #endif
 
 	gd->cur_i2c_bus = bus;
@@ -362,11 +323,6 @@ uint8_t i2c_reg_read(uint8_t addr, uint8_t reg)
 {
 	uint8_t buf;
 
-#ifdef CONFIG_8xx
-	/* MPC8xx needs this.  Maybe one day we can get rid of it. */
-	/* maybe it is now the time for it ... */
-	i2c_set_bus_num(i2c_get_bus_num());
-#endif
 	i2c_read(addr, reg, 1, &buf, 1);
 
 #ifdef DEBUG
@@ -379,12 +335,6 @@ uint8_t i2c_reg_read(uint8_t addr, uint8_t reg)
 
 void i2c_reg_write(uint8_t addr, uint8_t reg, uint8_t val)
 {
-#ifdef CONFIG_8xx
-	/* MPC8xx needs this.  Maybe one day we can get rid of it. */
-	/* maybe it is now the time for it ... */
-	i2c_set_bus_num(i2c_get_bus_num());
-#endif
-
 #ifdef DEBUG
 	printf("%s: bus=%d addr=0x%02x, reg=0x%02x, val=0x%02x\n",
 	       __func__, i2c_get_bus_num(), addr, reg, val);

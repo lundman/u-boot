@@ -1,9 +1,7 @@
 /*
  * Copyright 2008-2014 Freescale Semiconductor, Inc.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * Version 2 as published by the Free Software Foundation.
+ * SPDX-License-Identifier:	GPL-2.0
  */
 
 #ifndef DDR2_DIMM_PARAMS_H
@@ -112,7 +110,7 @@ typedef struct dimm_params_s {
 #endif
 } dimm_params_t;
 
-extern unsigned int ddr_compute_dimm_parameters(
+unsigned int ddr_compute_dimm_parameters(const unsigned int ctrl_num,
 					 const generic_spd_eeprom_t *spd,
 					 dimm_params_t *pdimm,
 					 unsigned int dimm_number);

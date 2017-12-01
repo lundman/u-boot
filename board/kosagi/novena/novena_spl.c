@@ -14,15 +14,18 @@
 #include <asm/arch/mx6-pins.h>
 #include <asm/arch/sys_proto.h>
 #include <asm/gpio.h>
-#include <asm/imx-common/boot_mode.h>
-#include <asm/imx-common/iomux-v3.h>
-#include <asm/imx-common/mxc_i2c.h>
+#include <asm/mach-imx/boot_mode.h>
+#include <asm/mach-imx/iomux-v3.h>
+#include <asm/mach-imx/mxc_i2c.h>
+#include <asm/arch/crm_regs.h>
 #include <i2c.h>
 #include <mmc.h>
 #include <fsl_esdhc.h>
 #include <spl.h>
 
 #include <asm/arch/mx6-ddr.h>
+
+#include "novena.h"
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -66,14 +69,6 @@ DECLARE_GLOBAL_DATA_PTR;
 	PAD_CTL_DSE_40ohm   | PAD_CTL_HYS)
 
 #define PC MUX_PAD_CTRL(I2C_PAD_CTRL)
-
-#define NOVENA_AUDIO_PWRON		IMX_GPIO_NR(5, 17)
-#define NOVENA_FPGA_RESET_N_GPIO	IMX_GPIO_NR(5, 7)
-#define NOVENA_HDMI_GHOST_HPD		IMX_GPIO_NR(5, 4)
-#define NOVENA_PCIE_RESET_GPIO		IMX_GPIO_NR(3, 29)
-#define NOVENA_PCIE_POWER_ON_GPIO	IMX_GPIO_NR(7, 12)
-#define NOVENA_PCIE_WAKE_UP_GPIO	IMX_GPIO_NR(3, 22)
-#define NOVENA_PCIE_DISABLE_GPIO	IMX_GPIO_NR(2, 16)
 
 /*
  * Audio
@@ -391,6 +386,13 @@ static void novena_spl_setup_iomux_uart(void)
 static iomux_v3_cfg_t hdmi_pads[] = {
 	/* "Ghost HPD" pin */
 	MX6_PAD_EIM_A24__GPIO5_IO04 | MUX_PAD_CTRL(NO_PAD_CTRL),
+
+	/* LCD_PWR_CTL */
+	MX6_PAD_CSI0_DAT10__GPIO5_IO28 | MUX_PAD_CTRL(NO_PAD_CTRL),
+	/* LCD_BL_ON */
+	MX6_PAD_KEY_ROW4__GPIO4_IO15 | MUX_PAD_CTRL(NO_PAD_CTRL),
+	/* GPIO_PWM1 */
+	MX6_PAD_DISP0_DAT8__GPIO4_IO29 | MUX_PAD_CTRL(NO_PAD_CTRL),
 };
 
 static void novena_spl_setup_iomux_video(void)
@@ -432,8 +434,8 @@ static struct mx6dq_iomux_ddr_regs novena_ddr_ioregs = {
 	.dram_ras		= 0x00000038,
 	.dram_reset		= 0x00000038,
 	/* SDCKE[0:1]: 100k pull-up */
-	.dram_sdcke0		= 0x00003000,
-	.dram_sdcke1		= 0x00003000,
+	.dram_sdcke0		= 0x00000038,
+	.dram_sdcke1		= 0x00000038,
 	/* SDBA2: pull-up disabled */
 	.dram_sdba2		= 0x00000000,
 	/* SDODT[0:1]: 100k pull-up, 40 ohm */
@@ -510,14 +512,16 @@ static struct mx6_ddr_sysinfo novena_ddr_info = {
 	/* Single chip select */
 	.ncs		= 1,
 	.cs1_mirror	= 0,
-	.rtt_wr		= 1,	/* RTT_Wr = RZQ/4 */
-	.rtt_nom	= 2,	/* RTT_Nom = RZQ/2 */
-	.walat		= 3,	/* Write additional latency */
-	.ralat		= 7,	/* Read additional latency */
+	.rtt_wr		= 0,	/* RTT_Wr = RZQ/4 */
+	.rtt_nom	= 1,	/* RTT_Nom = RZQ/2 */
+	.walat		= 0,	/* Write additional latency */
+	.ralat		= 5,	/* Read additional latency */
 	.mif3_mode	= 3,	/* Command prediction working mode */
 	.bi_on		= 1,	/* Bank interleaving enabled */
 	.sde_to_rst	= 0x10,	/* 14 cycles, 200us (JEDEC default) */
 	.rst_to_cke	= 0x23,	/* 33 cycles, 500us (JEDEC default) */
+	.refsel = 1,	/* Refresh cycles at 32KHz */
+	.refr = 7,	/* 8 refresh commands per refresh cycle */
 };
 
 static struct mx6_ddr3_cfg elpida_4gib_1600 = {
@@ -528,10 +532,23 @@ static struct mx6_ddr3_cfg elpida_4gib_1600 = {
 	.rowaddr	= 16,
 	.coladdr	= 10,
 	.pagesz		= 2,
-	.trcd		= 1300,
-	.trcmin		= 4900,
-	.trasmin	= 3590,
+	.trcd		= 1375,
+	.trcmin		= 4875,
+	.trasmin	= 3500,
 };
+
+static void ccgr_init(void)
+{
+	struct mxc_ccm_reg *ccm = (struct mxc_ccm_reg *)CCM_BASE_ADDR;
+
+	writel(0x00C03F3F, &ccm->CCGR0);
+	writel(0x0030FC03, &ccm->CCGR1);
+	writel(0x0FFFC000, &ccm->CCGR2);
+	writel(0x3FF00000, &ccm->CCGR3);
+	writel(0xFFFFF300, &ccm->CCGR4);
+	writel(0x0F0000C3, &ccm->CCGR5);
+	writel(0x000003FF, &ccm->CCGR6);
+}
 
 /*
  * called from C runtime startup code (arch/arm/lib/crt0.S:_main)
@@ -542,6 +559,9 @@ void board_init_f(ulong dummy)
 {
 	/* setup AIPS and disable watchdog */
 	arch_cpu_init();
+
+	ccgr_init();
+	gpr_init();
 
 	/* setup GP timer */
 	timer_init();
@@ -572,13 +592,8 @@ void board_init_f(ulong dummy)
 	mx6dq_dram_iocfg(64, &novena_ddr_ioregs, &novena_grp_ioregs);
 	mx6_dram_cfg(&novena_ddr_info, &novena_mmdc_calib, &elpida_4gib_1600);
 
-	/* Clear the BSS. */
-	memset(__bss_start, 0, __bss_end - __bss_start);
-
-	/* load/boot image from boot device */
-	board_init_r(NULL, 0);
-}
-
-void reset_cpu(ulong addr)
-{
+	/* Perform DDR DRAM calibration */
+	udelay(100);
+	mmdc_do_write_level_calibration(&novena_ddr_info);
+	mmdc_do_dqs_calibration(&novena_ddr_info);
 }

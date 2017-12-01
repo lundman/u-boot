@@ -12,8 +12,10 @@ import os
 import re
 import Queue
 import shutil
+import signal
 import string
 import sys
+import threading
 import time
 
 import builderthread
@@ -93,15 +95,43 @@ u-boot/             source directory
 # Possible build outcomes
 OUTCOME_OK, OUTCOME_WARNING, OUTCOME_ERROR, OUTCOME_UNKNOWN = range(4)
 
-# Translate a commit subject into a valid filename
-trans_valid_chars = string.maketrans("/: ", "---")
+# Translate a commit subject into a valid filename (and handle unicode)
+trans_valid_chars = string.maketrans('/: ', '---')
+trans_valid_chars = trans_valid_chars.decode('latin-1')
 
+BASE_CONFIG_FILENAMES = [
+    'u-boot.cfg', 'u-boot-spl.cfg', 'u-boot-tpl.cfg'
+]
+
+EXTRA_CONFIG_FILENAMES = [
+    '.config', '.config-spl', '.config-tpl',
+    'autoconf.mk', 'autoconf-spl.mk', 'autoconf-tpl.mk',
+    'autoconf.h', 'autoconf-spl.h','autoconf-tpl.h',
+]
+
+class Config:
+    """Holds information about configuration settings for a board."""
+    def __init__(self, config_filename, target):
+        self.target = target
+        self.config = {}
+        for fname in config_filename:
+            self.config[fname] = {}
+
+    def Add(self, fname, key, value):
+        self.config[fname][key] = value
+
+    def __hash__(self):
+        val = 0
+        for fname in self.config:
+            for key, value in self.config[fname].iteritems():
+                print key, value
+                val = val ^ hash(key) & hash(value)
+        return val
 
 class Builder:
     """Class for building U-Boot for a particular commit.
 
     Public members: (many should ->private)
-        active: True if the builder is active and has not been stopped
         already_done: Number of builds already completed
         base_dir: Base directory to use for builder
         checkout: True to check out source, False to skip that step.
@@ -166,15 +196,23 @@ class Builder:
                     value is itself a dictionary:
                         key: function name
                         value: Size of function in bytes
+            config: Dictionary keyed by filename - e.g. '.config'. Each
+                    value is itself a dictionary:
+                        key: config name
+                        value: config value
         """
-        def __init__(self, rc, err_lines, sizes, func_sizes):
+        def __init__(self, rc, err_lines, sizes, func_sizes, config):
             self.rc = rc
             self.err_lines = err_lines
             self.sizes = sizes
             self.func_sizes = func_sizes
+            self.config = config
 
     def __init__(self, toolchains, base_dir, git_dir, num_threads, num_jobs,
-                 gnu_make='make', checkout=True, show_unknown=True, step=1):
+                 gnu_make='make', checkout=True, show_unknown=True, step=1,
+                 no_subdirs=False, full_path=False, verbose_build=False,
+                 incremental=False, per_board_out_dir=False,
+                 config_only=False, squash_config_y=False):
         """Create a new Builder object
 
         Args:
@@ -188,12 +226,22 @@ class Builder:
                 This is used for testing.
             show_unknown: Show unknown boards (those not built) in summary
             step: 1 to process every commit, n to process every nth commit
+            no_subdirs: Don't create subdirectories when building current
+                source for a single board
+            full_path: Return the full path in CROSS_COMPILE and don't set
+                PATH
+            verbose_build: Run build with V=1 and don't use 'make -s'
+            incremental: Always perform incremental builds; don't run make
+                mrproper when configuring
+            per_board_out_dir: Build in a separate persistent directory per
+                board rather than a thread-specific directory
+            config_only: Only configure each build, don't build it
+            squash_config_y: Convert CONFIG options with the value 'y' to '1'
         """
         self.toolchains = toolchains
         self.base_dir = base_dir
         self._working_dir = os.path.join(base_dir, '.bm-work')
         self.threads = []
-        self.active = True
         self.do_make = self.Make
         self.gnu_make = gnu_make
         self.checkout = checkout
@@ -213,6 +261,14 @@ class Builder:
         self._step = step
         self.in_tree = False
         self._error_lines = 0
+        self.no_subdirs = no_subdirs
+        self.full_path = full_path
+        self.verbose_build = verbose_build
+        self.config_only = config_only
+        self.squash_config_y = squash_config_y
+        self.config_filenames = BASE_CONFIG_FILENAMES
+        if not self.squash_config_y:
+            self.config_filenames += EXTRA_CONFIG_FILENAMES
 
         self.col = terminal.Color()
 
@@ -224,7 +280,8 @@ class Builder:
         self.queue = Queue.Queue()
         self.out_queue = Queue.Queue()
         for i in range(self.num_threads):
-            t = builderthread.BuilderThread(self, i)
+            t = builderthread.BuilderThread(self, i, incremental,
+                    per_board_out_dir)
             t.setDaemon(True)
             t.start()
             self.threads.append(t)
@@ -238,14 +295,20 @@ class Builder:
         ignore_lines = ['(make.*Waiting for unfinished)', '(Segmentation fault)']
         self.re_make_err = re.compile('|'.join(ignore_lines))
 
+        # Handle existing graceful with SIGINT / Ctrl-C
+        signal.signal(signal.SIGINT, self.signal_handler)
+
     def __del__(self):
         """Get rid of all threads created by the builder"""
         for t in self.threads:
             del t
 
+    def signal_handler(self, signal, frame):
+        sys.exit(1)
+
     def SetDisplayOptions(self, show_errors=False, show_sizes=False,
                           show_detail=False, show_bloat=False,
-                          list_error_boards=False):
+                          list_error_boards=False, show_config=False):
         """Setup display options for the builder.
 
         show_errors: True to show summarised error/warning info
@@ -253,12 +316,14 @@ class Builder:
         show_detail: Show detail for each board
         show_bloat: Show detail for each function
         list_error_boards: Show the boards which caused each error/warning
+        show_config: Show config deltas
         """
         self._show_errors = show_errors
         self._show_sizes = show_sizes
         self._show_detail = show_detail
         self._show_bloat = show_bloat
         self._list_error_boards = list_error_boards
+        self._show_config = show_config
 
     def _AddTimestamp(self):
         """Add a new timestamp to the list and record the build period.
@@ -326,6 +391,9 @@ class Builder:
         cmd = [self.gnu_make] + list(args)
         result = command.RunPipe([cmd], capture=True, capture_stderr=True,
                 cwd=cwd, raise_on_error=False, **kwargs)
+        if self.verbose_build:
+            result.stdout = '%s\n' % (' '.join(cmd)) + result.stdout
+            result.combined = '%s\n' % (' '.join(cmd)) + result.combined
         return result
 
     def ProcessResult(self, result):
@@ -338,11 +406,6 @@ class Builder:
         col = terminal.Color()
         if result:
             target = result.brd.target
-
-            if result.return_code < 0:
-                self.active = False
-                command.StopAll()
-                return
 
             self.upto += 1
             if result.return_code != 0:
@@ -381,7 +444,7 @@ class Builder:
 
         name += target
         Print(line + name, newline=False)
-        length = 14 + len(name)
+        length = 16 + len(name)
         self.ClearLine(length)
 
     def _GetOutputDir(self, commit_upto):
@@ -392,15 +455,17 @@ class Builder:
         Args:
             commit_upto: Commit number to use (0..self.count-1)
         """
+        commit_dir = None
         if self.commits:
             commit = self.commits[commit_upto]
             subject = commit.subject.translate(trans_valid_chars)
             commit_dir = ('%02d_of_%02d_g%s_%s' % (commit_upto + 1,
                     self.commit_count, commit.hash, subject[:20]))
-        else:
+        elif not self.no_subdirs:
             commit_dir = 'current'
-        output_dir = os.path.join(self.base_dir, commit_dir)
-        return output_dir
+        if not commit_dir:
+            return self.base_dir
+        return os.path.join(self.base_dir, commit_dir)
 
     def GetBuildDir(self, commit_upto, target):
         """Get the name of the build directory for a commit number
@@ -505,13 +570,52 @@ class Builder:
                 sym[name] = sym.get(name, 0) + int(size, 16)
         return sym
 
-    def GetBuildOutcome(self, commit_upto, target, read_func_sizes):
+    def _ProcessConfig(self, fname):
+        """Read in a .config, autoconf.mk or autoconf.h file
+
+        This function handles all config file types. It ignores comments and
+        any #defines which don't start with CONFIG_.
+
+        Args:
+            fname: Filename to read
+
+        Returns:
+            Dictionary:
+                key: Config name (e.g. CONFIG_DM)
+                value: Config value (e.g. 1)
+        """
+        config = {}
+        if os.path.exists(fname):
+            with open(fname) as fd:
+                for line in fd:
+                    line = line.strip()
+                    if line.startswith('#define'):
+                        values = line[8:].split(' ', 1)
+                        if len(values) > 1:
+                            key, value = values
+                        else:
+                            key = values[0]
+                            value = '1' if self.squash_config_y else ''
+                        if not key.startswith('CONFIG_'):
+                            continue
+                    elif not line or line[0] in ['#', '*', '/']:
+                        continue
+                    else:
+                        key, value = line.split('=', 1)
+                    if self.squash_config_y and value == 'y':
+                        value = '1'
+                    config[key] = value
+        return config
+
+    def GetBuildOutcome(self, commit_upto, target, read_func_sizes,
+                        read_config):
         """Work out the outcome of a build.
 
         Args:
             commit_upto: Commit number to check (0..n-1)
             target: Target board to check
             read_func_sizes: True to read function size information
+            read_config: True to read .config and autoconf.h files
 
         Returns:
             Outcome object
@@ -520,6 +624,7 @@ class Builder:
         sizes_file = self.GetSizesFile(commit_upto, target)
         sizes = {}
         func_sizes = {}
+        config = {}
         if os.path.exists(done_file):
             with open(done_file, 'r') as fd:
                 return_code = int(fd.readline())
@@ -563,17 +668,25 @@ class Builder:
                                                                     '')
                         func_sizes[dict_name] = self.ReadFuncSizes(fname, fd)
 
-            return Builder.Outcome(rc, err_lines, sizes, func_sizes)
+            if read_config:
+                output_dir = self.GetBuildDir(commit_upto, target)
+                for name in self.config_filenames:
+                    fname = os.path.join(output_dir, name)
+                    config[name] = self._ProcessConfig(fname)
 
-        return Builder.Outcome(OUTCOME_UNKNOWN, [], {}, {})
+            return Builder.Outcome(rc, err_lines, sizes, func_sizes, config)
 
-    def GetResultSummary(self, boards_selected, commit_upto, read_func_sizes):
+        return Builder.Outcome(OUTCOME_UNKNOWN, [], {}, {}, {})
+
+    def GetResultSummary(self, boards_selected, commit_upto, read_func_sizes,
+                         read_config):
         """Calculate a summary of the results of building a commit.
 
         Args:
             board_selected: Dict containing boards to summarise
             commit_upto: Commit number to summarize (0..self.count-1)
             read_func_sizes: True to read function size information
+            read_config: True to read .config and autoconf.h files
 
         Returns:
             Tuple:
@@ -585,6 +698,11 @@ class Builder:
                 List containing a summary of warning lines
                 Dict keyed by error line, containing a list of the Board
                     objects with that warning
+                Dictionary keyed by board.target. Each value is a dictionary:
+                    key: filename - e.g. '.config'
+                    value is itself a dictionary:
+                        key: config name
+                        value: config value
         """
         def AddLine(lines_summary, lines_boards, line, board):
             line = line.rstrip()
@@ -599,10 +717,11 @@ class Builder:
         err_lines_boards = {}
         warn_lines_summary = []
         warn_lines_boards = {}
+        config = {}
 
         for board in boards_selected.itervalues():
             outcome = self.GetBuildOutcome(commit_upto, board.target,
-                                           read_func_sizes)
+                                           read_func_sizes, read_config)
             board_dict[board.target] = outcome
             last_func = None
             last_was_warning = False
@@ -628,8 +747,15 @@ class Builder:
                                     line, board)
                         last_was_warning = is_warning
                         last_func = None
+            tconfig = Config(self.config_filenames, board.target)
+            for fname in self.config_filenames:
+                if outcome.config:
+                    for key, value in outcome.config[fname].iteritems():
+                        tconfig.Add(fname, key, value)
+            config[board.target] = tconfig
+
         return (board_dict, err_lines_summary, err_lines_boards,
-                warn_lines_summary, warn_lines_boards)
+                warn_lines_summary, warn_lines_boards, config)
 
     def AddOutcome(self, board_dict, arch_list, changes, char, color):
         """Add an output to our list of outcomes for each architecture
@@ -653,7 +779,7 @@ class Builder:
                 arch = 'unknown'
             str = self.col.Color(color, ' ' + target)
             if not arch in done_arch:
-                str = self.col.Color(color, char) + '  ' + str
+                str = ' %s  %s' % (self.col.Color(color, char), str)
                 done_arch[arch] = True
             if not arch in arch_list:
                 arch_list[arch] = str
@@ -682,11 +808,12 @@ class Builder:
         """
         self._base_board_dict = {}
         for board in board_selected:
-            self._base_board_dict[board] = Builder.Outcome(0, [], [], {})
+            self._base_board_dict[board] = Builder.Outcome(0, [], [], {}, {})
         self._base_err_lines = []
         self._base_warn_lines = []
         self._base_err_line_boards = {}
         self._base_warn_line_boards = {}
+        self._base_config = None
 
     def PrintFuncSizeDetail(self, fname, old, new):
         grow, shrink, add, remove, up, down = 0, 0, 0, 0, 0, 0
@@ -720,7 +847,7 @@ class Builder:
         delta.reverse()
 
         args = [add, -remove, grow, -shrink, up, -down, up - down]
-        if max(args) == 0:
+        if max(args) == 0 and min(args) == 0:
             return
         args = [self.ColourNum(x) for x in args]
         indent = ' ' * 15
@@ -881,7 +1008,8 @@ class Builder:
 
     def PrintResultSummary(self, board_selected, board_dict, err_lines,
                            err_line_boards, warn_lines, warn_line_boards,
-                           show_sizes, show_detail, show_bloat):
+                           config, show_sizes, show_detail, show_bloat,
+                           show_config):
         """Compare results with the base results and display delta.
 
         Only boards mentioned in board_selected will be considered. This
@@ -902,9 +1030,14 @@ class Builder:
                 none, or we don't want to print errors
             warn_line_boards: Dict keyed by warning line, containing a list of
                 the Board objects with that warning
+            config: Dictionary keyed by filename - e.g. '.config'. Each
+                    value is itself a dictionary:
+                        key: config name
+                        value: config value
             show_sizes: Show image size deltas
             show_detail: Show detail for each board
             show_bloat: Show detail for each function
+            show_config: Show config changes
         """
         def _BoardList(line, line_boards):
             """Helper function to get a line of boards containing a line
@@ -918,7 +1051,8 @@ class Builder:
             if self._list_error_boards:
                 names = []
                 for board in line_boards[line]:
-                    names.append(board.target)
+                    if not board.target in names:
+                        names.append(board.target)
                 names_str = '(%s) ' % ','.join(names)
             else:
                 names_str = ''
@@ -937,6 +1071,60 @@ class Builder:
                     better_lines.append(char + '-' +
                             _BoardList(line, base_line_boards) + line)
             return better_lines, worse_lines
+
+        def _CalcConfig(delta, name, config):
+            """Calculate configuration changes
+
+            Args:
+                delta: Type of the delta, e.g. '+'
+                name: name of the file which changed (e.g. .config)
+                config: configuration change dictionary
+                    key: config name
+                    value: config value
+            Returns:
+                String containing the configuration changes which can be
+                    printed
+            """
+            out = ''
+            for key in sorted(config.keys()):
+                out += '%s=%s ' % (key, config[key])
+            return '%s %s: %s' % (delta, name, out)
+
+        def _AddConfig(lines, name, config_plus, config_minus, config_change):
+            """Add changes in configuration to a list
+
+            Args:
+                lines: list to add to
+                name: config file name
+                config_plus: configurations added, dictionary
+                    key: config name
+                    value: config value
+                config_minus: configurations removed, dictionary
+                    key: config name
+                    value: config value
+                config_change: configurations changed, dictionary
+                    key: config name
+                    value: config value
+            """
+            if config_plus:
+                lines.append(_CalcConfig('+', name, config_plus))
+            if config_minus:
+                lines.append(_CalcConfig('-', name, config_minus))
+            if config_change:
+                lines.append(_CalcConfig('c', name, config_change))
+
+        def _OutputConfigInfo(lines):
+            for line in lines:
+                if not line:
+                    continue
+                if line[0] == '+':
+                    col = self.col.GREEN
+                elif line[0] == '-':
+                    col = self.col.RED
+                elif line[0] == 'c':
+                    col = self.col.YELLOW
+                Print('   ' + line, newline=True, colour=col)
+
 
         better = []     # List of boards fixed since last commit
         worse = []      # List of new broken boards since last commit
@@ -998,12 +1186,112 @@ class Builder:
             self.PrintSizeSummary(board_selected, board_dict, show_detail,
                                   show_bloat)
 
+        if show_config and self._base_config:
+            summary = {}
+            arch_config_plus = {}
+            arch_config_minus = {}
+            arch_config_change = {}
+            arch_list = []
+
+            for target in board_dict:
+                if target not in board_selected:
+                    continue
+                arch = board_selected[target].arch
+                if arch not in arch_list:
+                    arch_list.append(arch)
+
+            for arch in arch_list:
+                arch_config_plus[arch] = {}
+                arch_config_minus[arch] = {}
+                arch_config_change[arch] = {}
+                for name in self.config_filenames:
+                    arch_config_plus[arch][name] = {}
+                    arch_config_minus[arch][name] = {}
+                    arch_config_change[arch][name] = {}
+
+            for target in board_dict:
+                if target not in board_selected:
+                    continue
+
+                arch = board_selected[target].arch
+
+                all_config_plus = {}
+                all_config_minus = {}
+                all_config_change = {}
+                tbase = self._base_config[target]
+                tconfig = config[target]
+                lines = []
+                for name in self.config_filenames:
+                    if not tconfig.config[name]:
+                        continue
+                    config_plus = {}
+                    config_minus = {}
+                    config_change = {}
+                    base = tbase.config[name]
+                    for key, value in tconfig.config[name].iteritems():
+                        if key not in base:
+                            config_plus[key] = value
+                            all_config_plus[key] = value
+                    for key, value in base.iteritems():
+                        if key not in tconfig.config[name]:
+                            config_minus[key] = value
+                            all_config_minus[key] = value
+                    for key, value in base.iteritems():
+                        new_value = tconfig.config.get(key)
+                        if new_value and value != new_value:
+                            desc = '%s -> %s' % (value, new_value)
+                            config_change[key] = desc
+                            all_config_change[key] = desc
+
+                    arch_config_plus[arch][name].update(config_plus)
+                    arch_config_minus[arch][name].update(config_minus)
+                    arch_config_change[arch][name].update(config_change)
+
+                    _AddConfig(lines, name, config_plus, config_minus,
+                               config_change)
+                _AddConfig(lines, 'all', all_config_plus, all_config_minus,
+                           all_config_change)
+                summary[target] = '\n'.join(lines)
+
+            lines_by_target = {}
+            for target, lines in summary.iteritems():
+                if lines in lines_by_target:
+                    lines_by_target[lines].append(target)
+                else:
+                    lines_by_target[lines] = [target]
+
+            for arch in arch_list:
+                lines = []
+                all_plus = {}
+                all_minus = {}
+                all_change = {}
+                for name in self.config_filenames:
+                    all_plus.update(arch_config_plus[arch][name])
+                    all_minus.update(arch_config_minus[arch][name])
+                    all_change.update(arch_config_change[arch][name])
+                    _AddConfig(lines, name, arch_config_plus[arch][name],
+                               arch_config_minus[arch][name],
+                               arch_config_change[arch][name])
+                _AddConfig(lines, 'all', all_plus, all_minus, all_change)
+                #arch_summary[target] = '\n'.join(lines)
+                if lines:
+                    Print('%s:' % arch)
+                    _OutputConfigInfo(lines)
+
+            for lines, targets in lines_by_target.iteritems():
+                if not lines:
+                    continue
+                Print('%s :' % ' '.join(sorted(targets)))
+                _OutputConfigInfo(lines.split('\n'))
+
+
         # Save our updated information for the next call to this function
         self._base_board_dict = board_dict
         self._base_err_lines = err_lines
         self._base_warn_lines = warn_lines
         self._base_err_line_boards = err_line_boards
         self._base_warn_line_boards = warn_line_boards
+        self._base_config = config
 
         # Get a list of boards that did not get built, if needed
         not_built = []
@@ -1016,9 +1304,10 @@ class Builder:
 
     def ProduceResultSummary(self, commit_upto, commits, board_selected):
             (board_dict, err_lines, err_line_boards, warn_lines,
-                    warn_line_boards) = self.GetResultSummary(
+                    warn_line_boards, config) = self.GetResultSummary(
                     board_selected, commit_upto,
-                    read_func_sizes=self._show_bloat)
+                    read_func_sizes=self._show_bloat,
+                    read_config=self._show_config)
             if commits:
                 msg = '%02d: %s' % (commit_upto + 1,
                         commits[commit_upto].subject)
@@ -1026,7 +1315,8 @@ class Builder:
             self.PrintResultSummary(board_selected, board_dict,
                     err_lines if self._show_errors else [], err_line_boards,
                     warn_lines if self._show_errors else [], warn_line_boards,
-                    self._show_sizes, self._show_detail, self._show_bloat)
+                    config, self._show_sizes, self._show_detail,
+                    self._show_bloat, self._show_config)
 
     def ShowSummary(self, commits, board_selected):
         """Show a build summary for U-Boot for a given board list.
@@ -1091,8 +1381,10 @@ class Builder:
             if os.path.exists(git_dir):
                 gitutil.Fetch(git_dir, thread_dir)
             else:
-                Print('Cloning repo for thread %d' % thread_num)
+                Print('\rCloning repo for thread %d' % thread_num,
+                      newline=False)
                 gitutil.Clone(src_dir, thread_dir)
+                Print('\r%s\r' % (' ' * 30), newline=False)
 
     def _PrepareWorkingSpace(self, max_threads, setup_git):
         """Prepare the working directory for use.
@@ -1114,12 +1406,20 @@ class Builder:
         create. Having left over directories is confusing when the user wants
         to check the output manually.
         """
+        if not self.commits:
+            return
         dir_list = []
         for commit_upto in range(self.commit_count):
             dir_list.append(self._GetOutputDir(commit_upto))
 
+        to_remove = []
         for dirname in glob.glob(os.path.join(self.base_dir, '*')):
             if dirname not in dir_list:
+                to_remove.append(dirname)
+        if to_remove:
+            Print('Removing %d old build directories' % len(to_remove),
+                  newline=False)
+            for dirname in to_remove:
                 shutil.rmtree(dirname)
 
     def BuildBoards(self, commits, board_selected, keep_outputs, verbose):
@@ -1145,6 +1445,7 @@ class Builder:
         self._PrepareWorkingSpace(min(self.num_threads, len(board_selected)),
                 commits is not None)
         self._PrepareOutputSpace()
+        Print('\rStarting build...', newline=False)
         self.SetupBuild(board_selected, commits)
         self.ProcessResult(None)
 
@@ -1157,8 +1458,11 @@ class Builder:
             job.step = self._step
             self.queue.put(job)
 
-        # Wait until all jobs are started
-        self.queue.join()
+        term = threading.Thread(target=self.queue.join)
+        term.setDaemon(True)
+        term.start()
+        while term.isAlive():
+            term.join(100)
 
         # Wait until we have processed all output
         self.out_queue.join()

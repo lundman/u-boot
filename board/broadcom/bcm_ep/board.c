@@ -7,6 +7,7 @@
 #include <common.h>
 #include <asm/io.h>
 #include <config.h>
+#include <netdev.h>
 #include <asm/system.h>
 #include <asm/iproc-common/armpll.h>
 
@@ -36,10 +37,12 @@ int dram_init(void)
 	return 0;
 }
 
-void dram_init_banksize(void)
+int dram_init_banksize(void)
 {
 	gd->bd->bi_dram[0].start = CONFIG_SYS_SDRAM_BASE;
 	gd->bd->bi_dram[0].size = gd->ram_size;
+
+	return 0;
 }
 
 int board_early_init_f(void)
@@ -53,3 +56,27 @@ int board_early_init_f(void)
 
 	return status;
 }
+
+#ifdef CONFIG_ARMV7_NONSEC
+void smp_set_core_boot_addr(unsigned long addr, int corenr)
+{
+}
+
+void smp_kick_all_cpus(void)
+{
+}
+
+void smp_waitloop(unsigned previous_address)
+{
+}
+#endif
+
+#ifdef CONFIG_BCM_SF2_ETH
+int board_eth_init(bd_t *bis)
+{
+	int rc = -1;
+	printf("Registering BCM sf2 eth\n");
+	rc = bcm_sf2_eth_register(bis, 0);
+	return rc;
+}
+#endif

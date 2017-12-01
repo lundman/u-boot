@@ -11,26 +11,18 @@
 /*
  * A10 specific configuration
  */
-#define CONFIG_CLK_FULL_SPEED		1008000000
 
-#define CONFIG_SYS_PROMPT		"sun4i# "
-#define CONFIG_MACH_TYPE		4104
-
-#ifdef CONFIG_USB_EHCI
+#ifdef CONFIG_USB_EHCI_HCD
 #define CONFIG_USB_EHCI_SUNXI
+#endif
 
-#define CONFIG_USB_MAX_CONTROLLER_COUNT	2
-#ifndef CONFIG_SUNXI_USB_VBUS0_GPIO
-#define CONFIG_SUNXI_USB_VBUS0_GPIO	SUNXI_GPH(6)
-#endif
-#ifndef CONFIG_SUNXI_USB_VBUS1_GPIO
-#define CONFIG_SUNXI_USB_VBUS1_GPIO	SUNXI_GPH(3)
-#endif
-#endif
+#define CONFIG_SUNXI_USB_PHYS	3
 
 /*
  * Include common sunxi configuration where most the settings are
  */
 #include <configs/sunxi-common.h>
+
+#define CONFIG_MACH_TYPE	(4104 | ((CONFIG_MACH_TYPE_COMPAT_REV) << 28))
 
 #endif /* __CONFIG_H */

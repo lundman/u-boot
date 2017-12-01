@@ -22,7 +22,6 @@
 #include <configs/ti_am335x_common.h>
 
 #define CONFIG_ENV_SIZE			(128 << 10)	/* 128 KiB */
-#define MACH_TYPE_PCM051		4144	/* Until the next sync */
 #define CONFIG_MACH_TYPE		MACH_TYPE_PCM051
 
 /* set to negative value for no autoboot */
@@ -45,6 +44,9 @@
 		"root=${mmcroot} " \
 		"rootfstype=${mmcrootfstype}\0" \
 	"bootenv=uEnv.txt\0" \
+	"loadbootscript=load mmc ${mmcdev} ${loadaddr} boot.scr\0" \
+	"bootscript=echo Running bootscript from mmc${mmcdev} ...; " \
+		"source ${loadaddr}\0" \
 	"loadbootenv=fatload mmc ${mmcdev} ${loadaddr} ${bootenv}\0" \
 	"importbootenv=echo Importing environment from mmc ...; " \
 		"env import -t $loadaddr $filesize\0" \
@@ -65,17 +67,21 @@
 #define CONFIG_BOOTCOMMAND \
 	"mmc dev ${mmcdev}; if mmc rescan; then " \
 		"echo SD/MMC found on device ${mmcdev};" \
-		"if run loadbootenv; then " \
-			"echo Loaded environment from ${bootenv};" \
-			"run importbootenv;" \
-		"fi;" \
-		"if test -n $uenvcmd; then " \
-			"echo Running uenvcmd ...;" \
-			"run uenvcmd;" \
-		"fi;" \
-		"if run loaduimage; then " \
-			"run mmcboot;" \
-		"fi;" \
+		"if run loadbootscript; then " \
+			"run bootscript;" \
+		"else " \
+			"if run loadbootenv; then " \
+				"echo Loaded environment from ${bootenv};" \
+				"run importbootenv;" \
+			"fi;" \
+			"if test -n $uenvcmd; then " \
+				"echo Running uenvcmd ...;" \
+				"run uenvcmd;" \
+			"fi;" \
+			"if run loaduimage; then " \
+				"run mmcboot;" \
+			"fi;" \
+		"fi ;" \
 	"fi;" \
 
 /* Clock Defines */
@@ -90,9 +96,6 @@
 #define CONFIG_SYS_MEMTEST_END		(CONFIG_SYS_MEMTEST_START \
 					+ (8 * 1024 * 1024))
 
-#define CONFIG_SPI_FLASH
-#define CONFIG_SPI_FLASH_WINBOND
-#define CONFIG_CMD_SF
 #define CONFIG_SF_DEFAULT_SPEED		24000000
 
 #define CONFIG_CONS_INDEX		1
@@ -105,28 +108,16 @@
 #define CONFIG_SYS_NS16550_COM6		0x481aa000	/* UART5 */
 
 /* I2C Configuration */
-#define CONFIG_CMD_EEPROM
 #define CONFIG_ENV_EEPROM_IS_ON_I2C
 #define CONFIG_SYS_I2C_EEPROM_ADDR	0x50	/* Main EEPROM */
 #define CONFIG_SYS_I2C_EEPROM_ADDR_LEN	2
-#define CONFIG_SYS_I2C_MULTI_EEPROMS
 
 #define CONFIG_SYS_BAUDRATE_TABLE	{ 110, 300, 600, 1200, 2400, \
 4800, 9600, 14400, 19200, 28800, 38400, 56000, 57600, 115200 }
 
 /* CPU */
-#define CONFIG_ENV_IS_NOWHERE
-
-#define CONFIG_SPL_YMODEM_SUPPORT
-#define CONFIG_SPL_NET_SUPPORT
-#define CONFIG_SPL_ENV_SUPPORT
-#define CONFIG_SPL_NET_VCI_STRING	"pcm051 U-Boot SPL"
-#define CONFIG_SPL_ETH_SUPPORT
-#define CONFIG_SPL_LDSCRIPT		"$(CPUDIR)/am33xx/u-boot-spl.lds"
 
 #ifdef CONFIG_SPI_BOOT
-#define CONFIG_SPL_SPI_SUPPORT
-#define CONFIG_SPL_SPI_FLASH_SUPPORT
 #define CONFIG_SPL_SPI_LOAD
 #define CONFIG_SYS_SPI_U_BOOT_OFFS	0x20000
 #define CONFIG_SYS_SPI_U_BOOT_SIZE	0x40000
@@ -136,32 +127,12 @@
  * USB configuration
  */
 #define CONFIG_USB_MUSB_DSPS
-#define CONFIG_ARCH_MISC_INIT
-#define CONFIG_MUSB_GADGET
-#define CONFIG_MUSB_PIO_ONLY
-#define CONFIG_USB_GADGET_DUALSPEED
-#define CONFIG_MUSB_HOST
+#define CONFIG_USB_MUSB_PIO_ONLY
 #define CONFIG_AM335X_USB0
 #define CONFIG_AM335X_USB0_MODE	MUSB_PERIPHERAL
 #define CONFIG_AM335X_USB1
 #define CONFIG_AM335X_USB1_MODE MUSB_HOST
 
-#ifdef CONFIG_MUSB_HOST
-#define CONFIG_CMD_USB
-#define CONFIG_USB_STORAGE
-#endif
-
-#ifdef CONFIG_MUSB_GADGET
-#define CONFIG_USB_ETHER
-#define CONFIG_USB_ETH_RNDIS
-#endif /* CONFIG_MUSB_GADGET */
-
-/* Unsupported features */
-#undef CONFIG_USE_IRQ
-
-#define CONFIG_NET_MULTI
-#define CONFIG_PHY_GIGE
-#define CONFIG_PHYLIB
 #define CONFIG_PHY_SMSC
 
 #endif	/* ! __CONFIG_PCM051_H */

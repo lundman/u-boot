@@ -15,9 +15,11 @@
 #include <errno.h>
 #include <fdtdec.h>
 #include <malloc.h>
+#include <asm/arch/gpio.h>
 #include <asm/io.h>
 #include <asm/gpio.h>
 #include <dm/device-internal.h>
+#include <dt-bindings/gpio/gpio.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -75,7 +77,7 @@ int gpio_direction_input(unsigned gpio)
 {
 	sunxi_gpio_set_cfgpin(gpio, SUNXI_GPIO_INPUT);
 
-	return sunxi_gpio_input(gpio);
+	return 0;
 }
 
 int gpio_direction_output(unsigned gpio, int value)
@@ -101,6 +103,7 @@ int sunxi_name_to_gpio(const char *name)
 	int groupsize = 9 * 32;
 	long pin;
 	char *eptr;
+
 	if (*name == 'P' || *name == 'p')
 		name++;
 	if (*name >= 'A') {
@@ -118,7 +121,44 @@ int sunxi_name_to_gpio(const char *name)
 }
 #endif
 
+int sunxi_name_to_gpio_bank(const char *name)
+{
+	int group = 0;
+
+	if (*name == 'P' || *name == 'p')
+		name++;
+	if (*name >= 'A') {
+		group = *name - (*name > 'a' ? 'a' : 'A');
+		return group;
+	}
+
+	return -1;
+}
+
 #ifdef CONFIG_DM_GPIO
+/* TODO(sjg@chromium.org): Remove this function and use device tree */
+int sunxi_name_to_gpio(const char *name)
+{
+	unsigned int gpio;
+	int ret;
+#if !defined CONFIG_SPL_BUILD && defined CONFIG_AXP_GPIO
+	char lookup[8];
+
+	if (strcasecmp(name, "AXP0-VBUS-DETECT") == 0) {
+		sprintf(lookup, SUNXI_GPIO_AXP0_PREFIX "%d",
+			SUNXI_GPIO_AXP0_VBUS_DETECT);
+		name = lookup;
+	} else if (strcasecmp(name, "AXP0-VBUS-ENABLE") == 0) {
+		sprintf(lookup, SUNXI_GPIO_AXP0_PREFIX "%d",
+			SUNXI_GPIO_AXP0_VBUS_ENABLE);
+		name = lookup;
+	}
+#endif
+	ret = gpio_lookup_name(name, NULL, NULL, &gpio);
+
+	return ret ? ret : gpio;
+}
+
 static int sunxi_gpio_direction_input(struct udevice *dev, unsigned offset)
 {
 	struct sunxi_gpio_platdata *plat = dev_get_platdata(dev);
@@ -176,12 +216,27 @@ static int sunxi_gpio_get_function(struct udevice *dev, unsigned offset)
 		return GPIOF_FUNC;
 }
 
+static int sunxi_gpio_xlate(struct udevice *dev, struct gpio_desc *desc,
+			    struct ofnode_phandle_args *args)
+{
+	int ret;
+
+	ret = device_get_child(dev, args->args[0], &desc->dev);
+	if (ret)
+		return ret;
+	desc->offset = args->args[1];
+	desc->flags = args->args[2] & GPIO_ACTIVE_LOW ? GPIOD_ACTIVE_LOW : 0;
+
+	return 0;
+}
+
 static const struct dm_gpio_ops gpio_sunxi_ops = {
 	.direction_input	= sunxi_gpio_direction_input,
 	.direction_output	= sunxi_gpio_direction_output,
 	.get_value		= sunxi_gpio_get_value,
 	.set_value		= sunxi_gpio_set_value,
 	.get_function		= sunxi_gpio_get_function,
+	.xlate			= sunxi_gpio_xlate,
 };
 
 /**
@@ -196,10 +251,11 @@ static char *gpio_bank_name(int bank)
 {
 	char *name;
 
-	name = malloc(2);
+	name = malloc(3);
 	if (name) {
-		name[0] = 'A' + bank;
-		name[1] = '\0';
+		name[0] = 'P';
+		name[1] = 'A' + bank;
+		name[2] = '\0';
 	}
 
 	return name;
@@ -208,7 +264,7 @@ static char *gpio_bank_name(int bank)
 static int gpio_sunxi_probe(struct udevice *dev)
 {
 	struct sunxi_gpio_platdata *plat = dev_get_platdata(dev);
-	struct gpio_dev_priv *uc_priv = dev->uclass_priv;
+	struct gpio_dev_priv *uc_priv = dev_get_uclass_priv(dev);
 
 	/* Tell the uclass how many GPIOs we have */
 	if (plat) {
@@ -218,24 +274,30 @@ static int gpio_sunxi_probe(struct udevice *dev)
 
 	return 0;
 }
+
+struct sunxi_gpio_soc_data {
+	int start;
+	int no_banks;
+};
+
 /**
  * We have a top-level GPIO device with no actual GPIOs. It has a child
  * device for each Sunxi bank.
  */
 static int gpio_sunxi_bind(struct udevice *parent)
 {
+	struct sunxi_gpio_soc_data *soc_data =
+		(struct sunxi_gpio_soc_data *)dev_get_driver_data(parent);
 	struct sunxi_gpio_platdata *plat = parent->platdata;
 	struct sunxi_gpio_reg *ctlr;
-	int bank;
-	int ret;
+	int bank, ret;
 
 	/* If this is a child device, there is nothing to do here */
 	if (plat)
 		return 0;
 
-	ctlr = (struct sunxi_gpio_reg *)fdtdec_get_addr(gd->fdt_blob,
-						   parent->of_offset, "reg");
-	for (bank = 0; bank < SUNXI_GPIO_BANKS; bank++) {
+	ctlr = (struct sunxi_gpio_reg *)devfdt_get_addr(parent);
+	for (bank = 0; bank < soc_data->no_banks; bank++) {
 		struct sunxi_gpio_platdata *plat;
 		struct udevice *dev;
 
@@ -243,21 +305,60 @@ static int gpio_sunxi_bind(struct udevice *parent)
 		if (!plat)
 			return -ENOMEM;
 		plat->regs = &ctlr->gpio_bank[bank];
-		plat->bank_name = gpio_bank_name(bank);
+		plat->bank_name = gpio_bank_name(soc_data->start + bank);
 		plat->gpio_count = SUNXI_GPIOS_PER_BANK;
 
 		ret = device_bind(parent, parent->driver,
 					plat->bank_name, plat, -1, &dev);
 		if (ret)
 			return ret;
-		dev->of_offset = parent->of_offset;
+		dev_set_of_offset(dev, dev_of_offset(parent));
 	}
 
 	return 0;
 }
 
+static const struct sunxi_gpio_soc_data soc_data_a_all = {
+	.start = 0,
+	.no_banks = SUNXI_GPIO_BANKS,
+};
+
+static const struct sunxi_gpio_soc_data soc_data_l_1 = {
+	.start = 'L' - 'A',
+	.no_banks = 1,
+};
+
+static const struct sunxi_gpio_soc_data soc_data_l_2 = {
+	.start = 'L' - 'A',
+	.no_banks = 2,
+};
+
+static const struct sunxi_gpio_soc_data soc_data_l_3 = {
+	.start = 'L' - 'A',
+	.no_banks = 3,
+};
+
+#define ID(_compat_, _soc_data_) \
+	{ .compatible = _compat_, .data = (ulong)&soc_data_##_soc_data_ }
+
 static const struct udevice_id sunxi_gpio_ids[] = {
-	{ .compatible = "allwinner,sun7i-a20-pinctrl" },
+	ID("allwinner,sun4i-a10-pinctrl",	a_all),
+	ID("allwinner,sun5i-a10s-pinctrl",	a_all),
+	ID("allwinner,sun5i-a13-pinctrl",	a_all),
+	ID("allwinner,sun6i-a31-pinctrl",	a_all),
+	ID("allwinner,sun6i-a31s-pinctrl",	a_all),
+	ID("allwinner,sun7i-a20-pinctrl",	a_all),
+	ID("allwinner,sun8i-a23-pinctrl",	a_all),
+	ID("allwinner,sun8i-a33-pinctrl",	a_all),
+	ID("allwinner,sun8i-a83t-pinctrl",	a_all),
+	ID("allwinner,sun8i-h3-pinctrl",	a_all),
+	ID("allwinner,sun8i-r40-pinctrl",	a_all),
+	ID("allwinner,sun9i-a80-pinctrl",	a_all),
+	ID("allwinner,sun6i-a31-r-pinctrl",	l_2),
+	ID("allwinner,sun8i-a23-r-pinctrl",	l_1),
+	ID("allwinner,sun8i-a83t-r-pinctrl",	l_1),
+	ID("allwinner,sun8i-h3-r-pinctrl",	l_1),
+	ID("allwinner,sun9i-a80-r-pinctrl",	l_3),
 	{ }
 };
 

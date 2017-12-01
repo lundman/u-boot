@@ -12,7 +12,7 @@
 
 #include <asm/arch/imx-regs.h>
 #include <asm/arch/clock.h>
-#include <asm/errno.h>
+#include <linux/errno.h>
 #include <asm/io.h>
 
 #include "videomodes.h"
@@ -816,7 +816,7 @@ void *video_hw_init(void)
 
 	videomode = CONFIG_SYS_DEFAULT_VIDEO_MODE;
 	/* get video mode via environment */
-	penv = getenv("videomode");
+	penv = env_get("videomode");
 	if (penv) {
 		/* decide if it is a string */
 		if (penv[0] <= '9') {
@@ -903,13 +903,4 @@ void *video_hw_init(void)
 			__func__, panel.frameAdrs, memsize);
 
 	return (void *) &panel;
-}
-
-void video_set_lut(unsigned int index,	/* color number */
-		    unsigned char r,	/* red */
-		    unsigned char g,	/* green */
-		    unsigned char b	/* blue */
-		    )
-{
-	return;
 }

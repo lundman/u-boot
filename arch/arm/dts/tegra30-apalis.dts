@@ -15,9 +15,13 @@
 		i2c1 = "/i2c@7000c000";
 		i2c2 = "/i2c@7000c500";
 		i2c3 = "/i2c@7000c700";
-		sdhci0 = "/sdhci@78000600";
-		sdhci1 = "/sdhci@78000400";
-		sdhci2 = "/sdhci@78000000";
+		mmc0 = "/sdhci@78000600";
+		mmc1 = "/sdhci@78000400";
+		mmc2 = "/sdhci@78000000";
+		spi0 = "/spi@7000d400";
+		spi1 = "/spi@7000dc00";
+		spi2 = "/spi@7000de00";
+		spi3 = "/spi@7000da00";
 		usb0 = "/usb@7d000000";
 		usb1 = "/usb@7d004000";
 		usb2 = "/usb@7d008000";
@@ -40,10 +44,12 @@
 		hvdd-pex-supply = <&sys_3v3_reg>;
 
 		pci@1,0 {
+			/* TS_DIFF1/2/3/4 left disabled */
 			nvidia,num-lanes = <4>;
 		};
 
 		pci@2,0 {
+			/* PCIE1_RX/TX left disabled */
 			nvidia,num-lanes = <1>;
 		};
 
@@ -59,7 +65,7 @@
 	 */
 	i2c@7000c000 {
 		status = "okay";
-		clock-frequency = <100000>;
+		clock-frequency = <400000>;
 	};
 
 	/* GEN2_I2C: unused */
@@ -70,13 +76,13 @@
 	 */
 	i2c@7000c500 {
 		status = "okay";
-		clock-frequency = <100000>;
+		clock-frequency = <400000>;
 	};
 
 	/* DDC: I2C2_SDA/SCL on MXM3 pin 205/207 (e.g. display EDID) */
 	i2c@7000c700 {
 		status = "okay";
-		clock-frequency = <100000>;
+		clock-frequency = <10000>;
 	};
 
 	/*
@@ -243,13 +249,15 @@
 	sdhci@78000000 {
 		status = "okay";
 		bus-width = <4>;
-		cd-gpios = <&gpio 229 1>; /* PCC5, SD1_CD# */
+		/* SD1_CD# */
+		cd-gpios = <&gpio TEGRA_GPIO(CC, 5) GPIO_ACTIVE_LOW>;
 	};
 
 	sdhci@78000400 {
 		status = "okay";
 		bus-width = <8>;
-		cd-gpios = <&gpio 171 1>; /* PV3, MMC1_CD# */
+		/* MMC1_CD# */
+		cd-gpios = <&gpio TEGRA_GPIO(V, 3) GPIO_ACTIVE_LOW>;
 	};
 
 	sdhci@78000600 {
@@ -261,21 +269,43 @@
 	/* EHCI instance 0: USB1_DP/N -> USBO1_DP/N */
 	usb@7d000000 {
 		status = "okay";
-		dr_mode = "peripheral";
-		nvidia,vbus-gpio = <&gpio 157 0>;	/* PT5, USBO1_EN */
+		dr_mode = "otg";
+		/* USBO1_EN */
+		nvidia,vbus-gpio = <&gpio TEGRA_GPIO(T, 5) GPIO_ACTIVE_HIGH>;
 	};
 
 	/* EHCI instance 1: USB2_DP/N -> USBH2_DP/N */
 	usb@7d004000 {
 		status = "okay";
-		nvidia,vbus-gpio = <&gpio 233 0>;	/* PDD1, USBH_EN */
-		phy_type = "utmi";
+		/* USBH_EN */
+		nvidia,vbus-gpio = <&gpio TEGRA_GPIO(DD, 1) GPIO_ACTIVE_HIGH>;
 	};
 
 	/* EHCI instance 2: USB3_DP/N -> USBH3_DP/N */
 	usb@7d008000 {
 		status = "okay";
-		nvidia,vbus-gpio = <&gpio 233 0>;	/* PDD1, USBH_EN */
+		/* USBH_EN */
+		nvidia,vbus-gpio = <&gpio TEGRA_GPIO(DD, 1) GPIO_ACTIVE_HIGH>;
+	};
+
+	clocks {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		clk32k_in: clk@0 {
+			compatible = "fixed-clock";
+			reg=<0>;
+			#clock-cells = <0>;
+			clock-frequency = <32768>;
+		};
+		clk16m: clk@1 {
+			compatible = "fixed-clock";
+			reg=<1>;
+			#clock-cells = <0>;
+			clock-frequency = <16000000>;
+			clock-output-names = "clk16m";
+		};
 	};
 
 	regulators {
@@ -301,4 +331,8 @@
 			regulator-always-on;
 		};
 	};
+};
+
+&uarta {
+	status = "okay";
 };

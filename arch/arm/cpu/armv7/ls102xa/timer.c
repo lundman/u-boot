@@ -56,12 +56,13 @@ static inline unsigned long long us_to_tick(unsigned long long usec)
 int timer_init(void)
 {
 	struct sctr_regs *sctr = (struct sctr_regs *)SCTR_BASE_ADDR;
-	unsigned long ctrl, val, freq;
+	unsigned long ctrl, freq;
+	unsigned long long val;
 
 	/* Enable System Counter */
 	writel(SYS_COUNTER_CTRL_ENABLE, &sctr->cntcr);
 
-	freq = GENERIC_TIMER_CLK;
+	freq = COUNTER_FREQUENCY;
 	asm("mcr p15, 0, %0, c14, c0, 0" : : "r" (freq));
 
 	/* Set PL1 Physical Timer Ctrl */

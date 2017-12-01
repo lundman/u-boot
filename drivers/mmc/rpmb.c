@@ -10,6 +10,7 @@
 
 #include <config.h>
 #include <common.h>
+#include <memalign.h>
 #include <mmc.h>
 #include <u-boot/sha256.h>
 #include "mmc_private.h"
@@ -66,7 +67,7 @@ struct s_rpmb {
 	unsigned char mac[RPMB_SZ_MAC];
 	unsigned char data[RPMB_SZ_DATA];
 	unsigned char nonce[RPMB_SZ_NONCE];
-	unsigned long write_counter;
+	unsigned int write_counter;
 	unsigned short address;
 	unsigned short block_count;
 	unsigned short result;

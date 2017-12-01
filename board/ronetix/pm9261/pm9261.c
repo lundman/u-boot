@@ -14,7 +14,6 @@
 #include <asm/gpio.h>
 #include <asm/arch/at91sam9_smc.h>
 #include <asm/arch/at91_common.h>
-#include <asm/arch/at91_pmc.h>
 #include <asm/arch/at91_rstc.h>
 #include <asm/arch/at91_matrix.h>
 #include <asm/arch/clk.h>
@@ -22,11 +21,11 @@
 
 #include <lcd.h>
 #include <atmel_lcdc.h>
-#include <dataflash.h>
 #if defined(CONFIG_RESET_PHY_R) && defined(CONFIG_DRIVER_DM9000)
 #include <net.h>
 #endif
 #include <netdev.h>
+#include <asm/mach-types.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -41,7 +40,6 @@ static void pm9261_nand_hw_init(void)
 	unsigned long csa;
 	struct at91_smc *smc = (struct at91_smc *)ATMEL_BASE_SMC;
 	struct at91_matrix *matrix = (struct at91_matrix *)ATMEL_BASE_MATRIX;
-	struct at91_pmc *pmc = (struct at91_pmc *)ATMEL_BASE_PMC;
 
 	/* Enable CS3 */
 	csa = readl(&matrix->csa) | AT91_MATRIX_CSA_EBI_CS3A;
@@ -69,9 +67,8 @@ static void pm9261_nand_hw_init(void)
 		AT91_SMC_MODE_TDF_CYCLE(2),
 		&smc->cs[3].mode);
 
-	writel(1 << ATMEL_ID_PIOA |
-		1 << ATMEL_ID_PIOC,
-		&pmc->pcer);
+	at91_periph_clk_enable(ATMEL_ID_PIOA);
+	at91_periph_clk_enable(ATMEL_ID_PIOC);
 
 	/* Configure RDY/BSY */
 	gpio_direction_input(CONFIG_SYS_NAND_READY_PIN);
@@ -89,7 +86,6 @@ static void pm9261_nand_hw_init(void)
 static void pm9261_dm9000_hw_init(void)
 {
 	struct at91_smc *smc = (struct at91_smc *)ATMEL_BASE_SMC;
-	struct at91_pmc *pmc = (struct at91_pmc *)ATMEL_BASE_PMC;
 
 	/* Configure SMC CS2 for DM9000 */
 	writel(AT91_SMC_SETUP_NWE(2) | AT91_SMC_SETUP_NCS_WR(0) |
@@ -110,7 +106,7 @@ static void pm9261_dm9000_hw_init(void)
 		&smc->cs[2].mode);
 
 	/* Configure Interrupt pin as input, no pull-up */
-	writel(1 << ATMEL_ID_PIOA, &pmc->pcer);
+	at91_periph_clk_enable(ATMEL_ID_PIOA);
 	at91_set_pio_input(AT91_PIO_PORTA, 24, 0);
 }
 #endif
@@ -145,8 +141,6 @@ void lcd_disable(void)
 
 static void pm9261_lcd_hw_init(void)
 {
-	struct at91_pmc *pmc = (struct at91_pmc *)ATMEL_BASE_PMC;
-
 	at91_set_a_periph(AT91_PIO_PORTB, 1, 0);	/* LCDHSYNC */
 	at91_set_a_periph(AT91_PIO_PORTB, 2, 0);	/* LCDDOTCK */
 	at91_set_a_periph(AT91_PIO_PORTB, 3, 0);	/* LCDDEN */
@@ -170,7 +164,7 @@ static void pm9261_lcd_hw_init(void)
 	at91_set_b_periph(AT91_PIO_PORTB, 27, 0);	/* LCDD22 */
 	at91_set_b_periph(AT91_PIO_PORTB, 28, 0);	/* LCDD23 */
 
-	writel(1 << 17, &pmc->scer); /* LCD controller Clock, AT91SAM9261 only */
+	at91_system_clk_enable(AT91_PMC_HCK1);
 
 	gd->fb_base = ATMEL_BASE_SRAM;
 }
@@ -183,7 +177,7 @@ extern flash_info_t flash_info[];
 
 void lcd_show_board_info(void)
 {
-	ulong dram_size, nand_size, flash_size, dataflash_size;
+	ulong dram_size, nand_size, flash_size;
 	int i;
 	char temp[32];
 
@@ -200,23 +194,17 @@ void lcd_show_board_info(void)
 
 	nand_size = 0;
 	for (i = 0; i < CONFIG_SYS_MAX_NAND_DEVICE; i++)
-		nand_size += nand_info[i].size;
+		nand_size += get_nand_dev_by_index(i)->size;
 
 	flash_size = 0;
 	for (i = 0; i < CONFIG_SYS_MAX_FLASH_BANKS; i++)
 		flash_size += flash_info[i].size;
 
-	dataflash_size = 0;
-	for (i = 0; i < CONFIG_SYS_MAX_DATAFLASH_BANKS; i++)
-		dataflash_size += (unsigned int) dataflash_info[i].Device.pages_number *
-				dataflash_info[i].Device.pages_size;
-
 	lcd_printf ("%ld MB SDRAM, %ld MB NAND\n%ld MB NOR Flash\n"
 			"%ld MB DataFlash\n",
 		dram_size >> 20,
 		nand_size >> 20,
-		flash_size >> 20,
-		dataflash_size >> 20);
+		flash_size >> 20);
 }
 #endif /* CONFIG_LCD_INFO */
 
@@ -224,15 +212,6 @@ void lcd_show_board_info(void)
 
 int board_early_init_f(void)
 {
-	struct at91_pmc *pmc = (struct at91_pmc *)ATMEL_BASE_PMC;
-
-	/* Enable clocks for some PIOs */
-	writel(1 << ATMEL_ID_PIOA |
-		1 << ATMEL_ID_PIOC,
-		&pmc->pcer);
-
-	at91_seriald_hw_init();
-
 	return 0;
 }
 
@@ -246,9 +225,6 @@ int board_init(void)
 
 #ifdef CONFIG_CMD_NAND
 	pm9261_nand_hw_init();
-#endif
-#ifdef CONFIG_HAS_DATAFLASH
-	at91_spi0_hw_init(1 << 0);
 #endif
 #ifdef CONFIG_DRIVER_DM9000
 	pm9261_dm9000_hw_init();
@@ -274,10 +250,12 @@ int dram_init(void)
 	return 0;
 }
 
-void dram_init_banksize(void)
+int dram_init_banksize(void)
 {
 	gd->bd->bi_dram[0].start = PHYS_SDRAM;
 	gd->bd->bi_dram[0].size = PHYS_SDRAM_SIZE;
+
+	return 0;
 }
 
 #ifdef CONFIG_RESET_PHY_R
@@ -288,7 +266,7 @@ void reset_phy(void)
 	 * Initialize ethernet HW addr prior to starting Linux,
 	 * needed for nfsroot
 	 */
-	eth_init(gd->bd);
+	eth_init();
 #endif
 }
 #endif

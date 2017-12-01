@@ -64,6 +64,7 @@ read_eeprom(int bus, struct ventana_board_info *info)
 	if (strncasecmp((const char *)info->model, "GW5400-A", 8) == 0)
 		baseboard = '0';
 
+	type = GW_UNKNOWN;
 	switch (baseboard) {
 	case '0': /* original GW5400-A prototype */
 		type = GW54proto;
@@ -81,11 +82,26 @@ read_eeprom(int bus, struct ventana_board_info *info)
 		type = GW54xx;
 		break;
 	case '5':
-		type = GW552x;
+		if (info->model[4] == '1') {
+			type = GW551x;
+			break;
+		} else if (info->model[4] == '2') {
+			type = GW552x;
+			break;
+		} else if (info->model[4] == '3') {
+			type = GW553x;
+			break;
+		}
 		break;
-	default:
-		printf("EEPROM: Unknown model in EEPROM: %s\n", info->model);
-		type = GW_UNKNOWN;
+	case '6':
+		if (info->model[4] == '0')
+			type = GW560x;
+		break;
+	case '9':
+		if (info->model[4] == '0' && info->model[5] == '3')
+			type = GW5903;
+		if (info->model[4] == '0' && info->model[5] == '4')
+			type = GW5904;
 		break;
 	}
 	return type;
@@ -94,43 +110,12 @@ read_eeprom(int bus, struct ventana_board_info *info)
 /* list of config bits that the bootloader will remove from dtb if not set */
 struct ventana_eeprom_config econfig[] = {
 	{ "eth0", "ethernet0", EECONFIG_ETH0 },
-	{ "eth1", "ethernet1", EECONFIG_ETH1 },
-	{ "sata", "ahci0", EECONFIG_SATA },
-	{ "pcie", NULL, EECONFIG_PCIE},
-	{ "lvds0", NULL, EECONFIG_LVDS0 },
-	{ "lvds1", NULL, EECONFIG_LVDS1 },
 	{ "usb0", NULL, EECONFIG_USB0 },
 	{ "usb1", NULL, EECONFIG_USB1 },
 	{ "mmc0", NULL, EECONFIG_SD0 },
 	{ "mmc1", NULL, EECONFIG_SD1 },
 	{ "mmc2", NULL, EECONFIG_SD2 },
 	{ "mmc3", NULL, EECONFIG_SD3 },
-	{ "uart0", NULL, EECONFIG_UART0 },
-	{ "uart1", NULL, EECONFIG_UART1 },
-	{ "uart2", NULL, EECONFIG_UART2 },
-	{ "uart3", NULL, EECONFIG_UART3 },
-	{ "uart4", NULL, EECONFIG_UART4 },
-	{ "ipu0", NULL, EECONFIG_IPU0 },
-	{ "ipu1", NULL, EECONFIG_IPU1 },
-	{ "can0", NULL, EECONFIG_FLEXCAN },
-	{ "i2c0", NULL, EECONFIG_I2C0 },
-	{ "i2c1", NULL, EECONFIG_I2C1 },
-	{ "i2c2", NULL, EECONFIG_I2C2 },
-	{ "vpu", NULL, EECONFIG_VPU },
-	{ "csi0", NULL, EECONFIG_CSI0 },
-	{ "csi1", NULL, EECONFIG_CSI1 },
-	{ "spi0", NULL, EECONFIG_ESPCI0 },
-	{ "spi1", NULL, EECONFIG_ESPCI1 },
-	{ "spi2", NULL, EECONFIG_ESPCI2 },
-	{ "spi3", NULL, EECONFIG_ESPCI3 },
-	{ "spi4", NULL, EECONFIG_ESPCI4 },
-	{ "spi5", NULL, EECONFIG_ESPCI5 },
-	{ "gps", "pps", EECONFIG_GPS },
-	{ "hdmi_in", NULL, EECONFIG_HDMI_IN },
-	{ "hdmi_out", NULL, EECONFIG_HDMI_OUT },
-	{ "cvbs_in", NULL, EECONFIG_VID_IN },
-	{ "cvbs_out", NULL, EECONFIG_VID_OUT },
-	{ "nand", NULL, EECONFIG_NAND },
 	{ /* Sentinel */ }
 };
 

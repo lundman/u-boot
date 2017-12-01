@@ -261,15 +261,15 @@ static void fdt_board_fixup_qe_pins(void *blob)
 #endif
 
 #ifdef CONFIG_OF_BOARD_SETUP
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	phys_addr_t base;
 	phys_size_t size;
 
 	ft_cpu_setup(blob, bd);
 
-	base = getenv_bootm_low();
-	size = getenv_bootm_size();
+	base = env_get_bootm_low();
+	size = env_get_bootm_size();
 
 	fdt_fixup_memory(blob, (u64)base, (u64)size);
 
@@ -282,6 +282,8 @@ void ft_board_setup(void *blob, bd_t *bd)
 #if defined(CONFIG_TWR_P1025)
 	fdt_board_fixup_qe_pins(blob);
 #endif
-	fdt_fixup_dr_usb(blob, bd);
+	fsl_fdt_fixup_dr_usb(blob, bd);
+
+	return 0;
 }
 #endif

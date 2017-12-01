@@ -8,15 +8,15 @@
 #include <fdtdec.h>
 #include <dm.h>
 #include <dm/root.h>
-#include <dm/ut.h>
 #include <dm/test.h>
 #include <dm/util.h>
 #include <asm/gpio.h>
+#include <test/ut.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
 /* Test that sandbox GPIOs work correctly */
-static int dm_test_gpio(struct dm_test_state *dms)
+static int dm_test_gpio(struct unit_test_state *uts)
 {
 	unsigned int offset, gpio;
 	struct dm_gpio_ops *ops;
@@ -75,6 +75,13 @@ static int dm_test_gpio(struct dm_test_state *dms)
 	ut_assertok(ops->set_value(dev, offset, 1));
 	ut_asserteq(1, ops->get_value(dev, offset));
 
+	/* Make it an open drain output, and reset it */
+	ut_asserteq(0, sandbox_gpio_get_open_drain(dev, offset));
+	ut_assertok(ops->set_open_drain(dev, offset, 1));
+	ut_asserteq(1, sandbox_gpio_get_open_drain(dev, offset));
+	ut_assertok(ops->set_open_drain(dev, offset, 0));
+	ut_asserteq(0, sandbox_gpio_get_open_drain(dev, offset));
+
 	/* Make it an input */
 	ut_assertok(ops->direction_input(dev, offset));
 	ut_assertok(gpio_get_status(dev, offset, buf, sizeof(buf)));
@@ -103,7 +110,7 @@ static int dm_test_gpio(struct dm_test_state *dms)
 DM_TEST(dm_test_gpio, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
 
 /* Test that sandbox anonymous GPIOs work correctly */
-static int dm_test_gpio_anon(struct dm_test_state *dms)
+static int dm_test_gpio_anon(struct unit_test_state *uts)
 {
 	unsigned int offset, gpio;
 	struct udevice *dev;
@@ -125,7 +132,7 @@ static int dm_test_gpio_anon(struct dm_test_state *dms)
 DM_TEST(dm_test_gpio_anon, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
 
 /* Test that gpio_requestf() works as expected */
-static int dm_test_gpio_requestf(struct dm_test_state *dms)
+static int dm_test_gpio_requestf(struct unit_test_state *uts)
 {
 	unsigned int offset, gpio;
 	struct udevice *dev;
@@ -143,7 +150,7 @@ static int dm_test_gpio_requestf(struct dm_test_state *dms)
 DM_TEST(dm_test_gpio_requestf, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
 
 /* Test that gpio_request() copies its string */
-static int dm_test_gpio_copy(struct dm_test_state *dms)
+static int dm_test_gpio_copy(struct unit_test_state *uts)
 {
 	unsigned int offset, gpio;
 	struct udevice *dev;
@@ -165,14 +172,81 @@ static int dm_test_gpio_copy(struct dm_test_state *dms)
 DM_TEST(dm_test_gpio_copy, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
 
 /* Test that we don't leak memory with GPIOs */
-static int dm_test_gpio_leak(struct dm_test_state *dms)
+static int dm_test_gpio_leak(struct unit_test_state *uts)
 {
-	ut_assertok(dm_test_gpio(dms));
-	ut_assertok(dm_test_gpio_anon(dms));
-	ut_assertok(dm_test_gpio_requestf(dms));
-	ut_assertok(dm_leak_check_end(dms));
+	ut_assertok(dm_test_gpio(uts));
+	ut_assertok(dm_test_gpio_anon(uts));
+	ut_assertok(dm_test_gpio_requestf(uts));
+	ut_assertok(dm_leak_check_end(uts));
 
 	return 0;
 }
-
 DM_TEST(dm_test_gpio_leak, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);
+
+/* Test that we can find GPIOs using phandles */
+static int dm_test_gpio_phandles(struct unit_test_state *uts)
+{
+	struct gpio_desc desc, desc_list[8], desc_list2[8];
+	struct udevice *dev, *gpio_a, *gpio_b;
+
+	ut_assertok(uclass_get_device(UCLASS_TEST_FDT, 0, &dev));
+	ut_asserteq_str("a-test", dev->name);
+
+	ut_assertok(gpio_request_by_name(dev, "test-gpios", 1, &desc, 0));
+	ut_assertok(uclass_get_device(UCLASS_GPIO, 1, &gpio_a));
+	ut_assertok(uclass_get_device(UCLASS_GPIO, 2, &gpio_b));
+	ut_asserteq_str("base-gpios", gpio_a->name);
+	ut_asserteq(true, !!device_active(gpio_a));
+	ut_asserteq_ptr(gpio_a, desc.dev);
+	ut_asserteq(4, desc.offset);
+	/* GPIOF_INPUT is the sandbox GPIO driver default */
+	ut_asserteq(GPIOF_INPUT, gpio_get_function(gpio_a, 4, NULL));
+	ut_assertok(dm_gpio_free(dev, &desc));
+
+	ut_asserteq(-ENOENT, gpio_request_by_name(dev, "test-gpios", 3, &desc,
+						  0));
+	ut_asserteq_ptr(NULL, desc.dev);
+	ut_asserteq(desc.offset, 0);
+	ut_asserteq(-ENOENT, gpio_request_by_name(dev, "test-gpios", 5, &desc,
+						  0));
+
+	/* Last GPIO is ignord as it comes after <0> */
+	ut_asserteq(3, gpio_request_list_by_name(dev, "test-gpios", desc_list,
+						 ARRAY_SIZE(desc_list), 0));
+	ut_asserteq(-EBUSY, gpio_request_list_by_name(dev, "test-gpios",
+						      desc_list2,
+						      ARRAY_SIZE(desc_list2),
+						      0));
+	ut_assertok(gpio_free_list(dev, desc_list, 3));
+	ut_asserteq(3, gpio_request_list_by_name(dev,  "test-gpios", desc_list,
+						 ARRAY_SIZE(desc_list),
+						 GPIOD_IS_OUT |
+						 GPIOD_IS_OUT_ACTIVE));
+	ut_asserteq_ptr(gpio_a, desc_list[0].dev);
+	ut_asserteq(1, desc_list[0].offset);
+	ut_asserteq_ptr(gpio_a, desc_list[1].dev);
+	ut_asserteq(4, desc_list[1].offset);
+	ut_asserteq_ptr(gpio_b, desc_list[2].dev);
+	ut_asserteq(5, desc_list[2].offset);
+	ut_asserteq(1, dm_gpio_get_value(desc_list));
+	ut_assertok(gpio_free_list(dev, desc_list, 3));
+
+	ut_asserteq(6, gpio_request_list_by_name(dev, "test2-gpios", desc_list,
+						 ARRAY_SIZE(desc_list), 0));
+	/* This was set to output previously, so still will be */
+	ut_asserteq(GPIOF_OUTPUT, gpio_get_function(gpio_a, 1, NULL));
+
+	/* Active low should invert the input value */
+	ut_asserteq(GPIOF_INPUT, gpio_get_function(gpio_b, 6, NULL));
+	ut_asserteq(1, dm_gpio_get_value(&desc_list[2]));
+
+	ut_asserteq(GPIOF_INPUT, gpio_get_function(gpio_b, 7, NULL));
+	ut_asserteq(GPIOF_OUTPUT, gpio_get_function(gpio_b, 8, NULL));
+	ut_asserteq(0, dm_gpio_get_value(&desc_list[4]));
+	ut_asserteq(GPIOF_OUTPUT, gpio_get_function(gpio_b, 9, NULL));
+	ut_asserteq(1, dm_gpio_get_value(&desc_list[5]));
+
+
+	return 0;
+}
+DM_TEST(dm_test_gpio_phandles, DM_TESTF_SCAN_PDATA | DM_TESTF_SCAN_FDT);

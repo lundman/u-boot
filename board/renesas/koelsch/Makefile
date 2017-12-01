@@ -6,4 +6,4 @@
 # SPDX-License-Identifier: GPL-2.0
 #
 
-obj-y	:= koelsch.o qos.o
+obj-y	:= koelsch.o qos.o ../rcar-common/common.o

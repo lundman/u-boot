@@ -13,11 +13,6 @@
 static struct sandbox_state main_state;
 static struct sandbox_state *state;	/* Pointer to current state record */
 
-void state_record_exit(enum exit_type_id exit_type)
-{
-	state->exit_type = exit_type;
-}
-
 static int state_ensure_space(int extra_size)
 {
 	void *blob = state->state_fdt;
@@ -49,12 +44,12 @@ static int state_ensure_space(int extra_size)
 
 static int state_read_file(struct sandbox_state *state, const char *fname)
 {
-	int size;
+	loff_t size;
 	int ret;
 	int fd;
 
-	size = os_get_filesize(fname);
-	if (size < 0) {
+	ret = os_get_filesize(fname, &size);
+	if (ret < 0) {
 		printf("Cannot find sandbox state file '%s'\n", fname);
 		return -ENOENT;
 	}
@@ -342,6 +337,30 @@ struct sandbox_state *state_get_current(void)
 	return state;
 }
 
+void state_set_skip_delays(bool skip_delays)
+{
+	struct sandbox_state *state = state_get_current();
+
+	state->skip_delays = skip_delays;
+}
+
+bool state_get_skip_delays(void)
+{
+	struct sandbox_state *state = state_get_current();
+
+	return state->skip_delays;
+}
+
+void state_reset_for_test(struct sandbox_state *state)
+{
+	/* No reset yet, so mark it as such. Always allow power reset */
+	state->last_sysreset = SYSRESET_COUNT;
+	state->sysreset_allowed[SYSRESET_POWER] = true;
+
+	memset(&state->wdt, '\0', sizeof(state->wdt));
+	memset(state->spi, '\0', sizeof(state->spi));
+}
+
 int state_init(void)
 {
 	state = &main_state;
@@ -350,6 +369,7 @@ int state_init(void)
 	state->ram_buf = os_malloc(state->ram_size);
 	assert(state->ram_buf);
 
+	state_reset_for_test(state);
 	/*
 	 * Example of how to use GPIOs:
 	 *

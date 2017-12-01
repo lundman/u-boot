@@ -19,6 +19,7 @@
 #include <asm/io.h>
 #include <linux/sizes.h>
 #include <errno.h>
+#include <asm/arch/sys_proto.h>
 
 #define PCI_ACCESS_READ  0
 #define PCI_ACCESS_WRITE 1
@@ -41,6 +42,9 @@
 
 /* PCIe Port Logic registers (memory-mapped) */
 #define PL_OFFSET 0x700
+#define PCIE_PL_PFLR (PL_OFFSET + 0x08)
+#define PCIE_PL_PFLR_LINK_STATE_MASK		(0x3f << 16)
+#define PCIE_PL_PFLR_FORCE_LINK			(1 << 15)
 #define PCIE_PHY_DEBUG_R0 (PL_OFFSET + 0x28)
 #define PCIE_PHY_DEBUG_R1 (PL_OFFSET + 0x2c)
 #define PCIE_PHY_DEBUG_R1_LINK_UP		(1 << 4)
@@ -380,7 +384,7 @@ static int imx_pcie_read_config(struct pci_controller *hose, pci_dev_t d,
 	ret = imx_pcie_addr_valid(d);
 	if (ret) {
 		*val = 0xffffffff;
-		return ret;
+		return 0;
 	}
 
 	va_address = get_bus_address(d, where);
@@ -427,9 +431,13 @@ static int imx_pcie_write_config(struct pci_controller *hose, pci_dev_t d,
 /*
  * Initial bus setup
  */
-static int imx6_pcie_assert_core_reset(void)
+static int imx6_pcie_assert_core_reset(bool prepare_for_boot)
 {
 	struct iomuxc *iomuxc_regs = (struct iomuxc *)IOMUXC_BASE_ADDR;
+
+	if (is_mx6dqp())
+		setbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_PCIE_SW_RST);
+
 #if defined(CONFIG_MX6SX)
 	struct gpc *gpc_regs = (struct gpc *)GPC_BASE_ADDR;
 
@@ -440,6 +448,36 @@ static int imx6_pcie_assert_core_reset(void)
 	/* Power up PCIe PHY */
 	setbits_le32(&gpc_regs->cntr, PCIE_PHY_PUP_REQ);
 #else
+	/*
+	 * If the bootloader already enabled the link we need some special
+	 * handling to get the core back into a state where it is safe to
+	 * touch it for configuration.  As there is no dedicated reset signal
+	 * wired up for MX6QDL, we need to manually force LTSSM into "detect"
+	 * state before completely disabling LTSSM, which is a prerequisite
+	 * for core configuration.
+	 *
+	 * If both LTSSM_ENABLE and REF_SSP_ENABLE are active we have a strong
+	 * indication that the bootloader activated the link.
+	 */
+	if (is_mx6dq() && prepare_for_boot) {
+		u32 val, gpr1, gpr12;
+
+		gpr1 = readl(&iomuxc_regs->gpr[1]);
+		gpr12 = readl(&iomuxc_regs->gpr[12]);
+		if ((gpr1 & IOMUXC_GPR1_PCIE_REF_CLK_EN) &&
+		    (gpr12 & IOMUXC_GPR12_PCIE_CTL_2)) {
+			val = readl(MX6_DBI_ADDR + PCIE_PL_PFLR);
+			val &= ~PCIE_PL_PFLR_LINK_STATE_MASK;
+			val |= PCIE_PL_PFLR_FORCE_LINK;
+
+			imx_pcie_fix_dabt_handler(true);
+			writel(val, MX6_DBI_ADDR + PCIE_PL_PFLR);
+			imx_pcie_fix_dabt_handler(false);
+
+			gpr12 &= ~IOMUXC_GPR12_PCIE_CTL_2;
+			writel(val, &iomuxc_regs->gpr[12]);
+		}
+	}
 	setbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_TEST_POWERDOWN);
 	clrbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_REF_SSP_EN);
 #endif
@@ -495,7 +533,7 @@ __weak int imx6_pcie_toggle_reset(void)
 	 *
 	 * The PCIe #PERST reset line _MUST_ be connected, otherwise your
 	 * design does not conform to the specification. You must wait at
-	 * least 20 mS after de-asserting the #PERST so the EP device can
+	 * least 20 ms after de-asserting the #PERST so the EP device can
 	 * do self-initialisation.
 	 *
 	 * In case your #PERST pin is connected to a plain GPIO pin of the
@@ -506,7 +544,7 @@ __weak int imx6_pcie_toggle_reset(void)
 	 * In case your #PERST toggling logic is more complex, for example
 	 * connected via CPLD or somesuch, you can override this function
 	 * in your board file and implement reset logic as needed. You must
-	 * not forget to wait at least 20 mS after de-asserting #PERST in
+	 * not forget to wait at least 20 ms after de-asserting #PERST in
 	 * this case either though.
 	 *
 	 * In case your #PERST line of the PCIe EP device is not connected
@@ -536,9 +574,12 @@ static int imx6_pcie_deassert_core_reset(void)
 
 	enable_pcie_clock();
 
+	if (is_mx6dqp())
+		clrbits_le32(&iomuxc_regs->gpr[1], IOMUXC_GPR1_PCIE_SW_RST);
+
 	/*
 	 * Wait for the clock to settle a bit, when the clock are sourced
-	 * from the CPU, we need about 30mS to settle.
+	 * from the CPU, we need about 30 ms to settle.
 	 */
 	mdelay(50);
 
@@ -564,7 +605,7 @@ static int imx_pcie_link_up(void)
 	uint32_t tmp;
 	int count = 0;
 
-	imx6_pcie_assert_core_reset();
+	imx6_pcie_assert_core_reset(false);
 	imx6_pcie_init_phy();
 	imx6_pcie_deassert_core_reset();
 
@@ -587,8 +628,10 @@ static int imx_pcie_link_up(void)
 	while (!imx6_pcie_link_up()) {
 		udelay(10);
 		count++;
-		if (count >= 2000) {
-			debug("phy link never came up\n");
+		if (count >= 4000) {
+#ifdef CONFIG_PCI_SCAN_SHOW
+			puts("PCI:   pcie phy link never came up\n");
+#endif
 			debug("DEBUG_R0: 0x%08x, DEBUG_R1: 0x%08x\n",
 			      readl(MX6_DBI_ADDR + PCIE_PHY_DEBUG_R0),
 			      readl(MX6_DBI_ADDR + PCIE_PHY_DEBUG_R1));
@@ -640,6 +683,11 @@ void imx_pcie_init(void)
 		pci_register_hose(hose);
 		hose->last_busno = pci_hose_scan(hose);
 	}
+}
+
+void imx_pcie_remove(void)
+{
+	imx6_pcie_assert_core_reset(true);
 }
 
 /* Probe function. */

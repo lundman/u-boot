@@ -6,6 +6,16 @@ F:	include/configs/vexpress_aemv8a.h
 F:	configs/vexpress_aemv8a_defconfig
 
 VEXPRESS_AEMV8A_SEMI BOARD
-M:	Steve Rae <srae@broadcom.com>
+M:	Linus Walleij <linus.walleij@linaro.org>
 S:	Maintained
 F:	configs/vexpress_aemv8a_semi_defconfig
+
+VEXPRESS_AEMV8A_DRAM BOARD
+M:	Ryan Harkin <ryan.harkin@linaro.org>
+S:	Maintained
+F:	configs/vexpress_aemv8a_dram_defconfig
+
+JUNO DEVELOPMENT PLATFORM BOARD
+M:	Linus Walleij <linus.walleij@linaro.org>
+S:	Maintained
+F:	configs/vexpress_aemv8a_juno_defconfig

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2011
- * Stefan Herbrechtsmeier <stefan@code.herbrechtsmeier.net>
+ * Stefan Herbrechtsmeier <stefan@herbrechtsmeier.net>
  *
  * Based on Kirkwood support:
  * (C) Copyright 2009
@@ -16,9 +16,7 @@
 /*
  * Machine number definition
  */
-#define MACH_TYPE_DNS325		3800
 #define CONFIG_MACH_TYPE		MACH_TYPE_DNS325
-#define CONFIG_IDENT_STRING		"\nD-Link DNS-325"
 
 /*
  * High Level Configuration Options (easy to change)
@@ -30,15 +28,6 @@
 /*
  * Commands configuration
  */
-#define CONFIG_SYS_NO_FLASH		/* Declare no flash (NOR/SPI) */
-#include <config_cmd_default.h>
-#define CONFIG_CMD_DHCP
-#define CONFIG_CMD_ENV
-#define CONFIG_CMD_NAND
-#define CONFIG_CMD_PING
-#define CONFIG_CMD_USB
-#define CONFIG_CMD_IDE
-#define CONFIG_CMD_DATE
 #define CONFIG_SYS_MVFS
 
 #define CONFIG_NR_DRAM_BANKS		1
@@ -50,7 +39,6 @@
 #include "mv-common.h"
 
 /* Remove or override few declarations from mv-common.h */
-#undef CONFIG_SYS_PROMPT
 
 /*
  * Ethernet Driver configuration
@@ -81,34 +69,10 @@
 #define CONFIG_KIRKWOOD_GPIO
 
 /*
- * Use the HUSH parser
- */
-#define CONFIG_SYS_HUSH_PARSER
-
-/*
- * Console configuration
- */
-#define CONFIG_CONSOLE_MUX
-#define CONFIG_SYS_CONSOLE_IS_IN_ENV
-
-/*
- * Enable device tree support
- */
-#define CONFIG_OF_LIBFDT
-
-/*
- * Display cpu info at boot
- */
-#define CONFIG_DISPLAY_CPUINFO
-
-/*
  * Environment variables configurations
  */
 #ifdef CONFIG_CMD_NAND
-#define CONFIG_ENV_IS_IN_NAND
 #define CONFIG_ENV_SECT_SIZE		0x20000	/* 128KB */
-#else
-#define CONFIG_ENV_IS_NOWHERE
 #endif
 
 #define CONFIG_ENV_SIZE			0x20000	/* 128KB */
@@ -118,10 +82,6 @@
 /*
  * Default environment variables
  */
-#define MTDIDS_DEFAULT			"nand0=orion_nand"
-
-#define MTDPARTS_DEFAULT		"mtdparts=orion_nand:" \
-	"896k(u-boot),128k(u-boot-env),5m(kernel),-(rootfs)\0"
 
 #define CONFIG_EXTRA_ENV_SETTINGS \
 	"stdin=serial\0" \
@@ -130,7 +90,7 @@
 	"loadaddr=0x800000\0" \
 	"autoload=no\0" \
 	"console=ttyS0,115200\0" \
-	"mtdparts="MTDPARTS_DEFAULT \
+	"mtdparts="CONFIG_MTDPARTS_DEFAULT \
 	"optargs=\0" \
 	"bootenv=uEnv.txt\0" \
 	"importbootenv=echo Importing environment ...; " \

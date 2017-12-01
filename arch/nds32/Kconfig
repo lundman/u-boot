@@ -6,20 +6,17 @@ config SYS_ARCH
 
 choice
 	prompt "Target select"
-
-config TARGET_ADP_AG101
-	bool "Support adp-ag101"
+	optional
 
 config TARGET_ADP_AG101P
 	bool "Support adp-ag101p"
 
-config TARGET_ADP_AG102
-	bool "Support adp-ag102"
+config TARGET_ADP_AE3XX
+	bool "Support adp-ae3xx"
 
 endchoice
 
-source "board/AndesTech/adp-ag101/Kconfig"
 source "board/AndesTech/adp-ag101p/Kconfig"
-source "board/AndesTech/adp-ag102/Kconfig"
+source "board/AndesTech/adp-ae3xx/Kconfig"
 
 endmenu

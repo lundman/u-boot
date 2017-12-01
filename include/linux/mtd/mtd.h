@@ -1,7 +1,7 @@
 /*
  * Copyright © 1999-2010 David Woodhouse <dwmw2@infradead.org> et al.
  *
- * Released under GPL
+ * SPDX-License-Identifier:	GPL-2.0+
  *
  */
 
@@ -20,7 +20,7 @@
 #else
 #include <linux/compat.h>
 #include <mtd/mtd-abi.h>
-#include <asm/errno.h>
+#include <linux/errno.h>
 #include <div64.h>
 
 #define MAX_MTD_DEVICES 32
@@ -101,8 +101,38 @@ struct mtd_oob_ops {
 #ifdef CONFIG_SYS_NAND_MAX_ECCPOS
 #define MTD_MAX_ECCPOS_ENTRIES_LARGE	CONFIG_SYS_NAND_MAX_ECCPOS
 #else
-#define MTD_MAX_ECCPOS_ENTRIES_LARGE	640
+#define MTD_MAX_ECCPOS_ENTRIES_LARGE	680
 #endif
+/**
+ * struct mtd_oob_region - oob region definition
+ * @offset: region offset
+ * @length: region length
+ *
+ * This structure describes a region of the OOB area, and is used
+ * to retrieve ECC or free bytes sections.
+ * Each section is defined by an offset within the OOB area and a
+ * length.
+ */
+struct mtd_oob_region {
+	u32 offset;
+	u32 length;
+};
+
+/*
+ * struct mtd_ooblayout_ops - NAND OOB layout operations
+ * @ecc: function returning an ECC region in the OOB area.
+ *	 Should return -ERANGE if %section exceeds the total number of
+ *	 ECC sections.
+ * @free: function returning a free region in the OOB area.
+ *	  Should return -ERANGE if %section exceeds the total number of
+ *	  free sections.
+ */
+struct mtd_ooblayout_ops {
+	int (*ecc)(struct mtd_info *mtd, int section,
+		   struct mtd_oob_region *oobecc);
+	int (*free)(struct mtd_info *mtd, int section,
+		    struct mtd_oob_region *oobfree);
+};
 
 /*
  * Internal ECC layout control structure. For historical reasons, there is a
@@ -179,6 +209,9 @@ struct mtd_info {
 #endif
 	int index;
 
+	/* OOB layout description */
+	const struct mtd_ooblayout_ops *ooblayout;
+
 	/* ECC layout structure pointer - read only! */
 	struct nand_ecclayout *ecclayout;
 
@@ -238,11 +271,13 @@ struct mtd_info {
 	int (*_lock) (struct mtd_info *mtd, loff_t ofs, uint64_t len);
 	int (*_unlock) (struct mtd_info *mtd, loff_t ofs, uint64_t len);
 	int (*_is_locked) (struct mtd_info *mtd, loff_t ofs, uint64_t len);
+	int (*_block_isreserved) (struct mtd_info *mtd, loff_t ofs);
 	int (*_block_isbad) (struct mtd_info *mtd, loff_t ofs);
 	int (*_block_markbad) (struct mtd_info *mtd, loff_t ofs);
 #ifndef __UBOOT__
 	int (*_suspend) (struct mtd_info *mtd);
 	void (*_resume) (struct mtd_info *mtd);
+	void (*_reboot) (struct mtd_info *mtd);
 #endif
 	/*
 	 * If the driver is something smart, like UBI, it may need to maintain
@@ -270,9 +305,40 @@ struct mtd_info {
 	struct module *owner;
 #ifndef __UBOOT__
 	struct device dev;
+#else
+	struct udevice *dev;
 #endif
 	int usecount;
 };
+
+int mtd_ooblayout_ecc(struct mtd_info *mtd, int section,
+		      struct mtd_oob_region *oobecc);
+int mtd_ooblayout_find_eccregion(struct mtd_info *mtd, int eccbyte,
+				 int *section,
+				 struct mtd_oob_region *oobregion);
+int mtd_ooblayout_get_eccbytes(struct mtd_info *mtd, u8 *eccbuf,
+			       const u8 *oobbuf, int start, int nbytes);
+int mtd_ooblayout_set_eccbytes(struct mtd_info *mtd, const u8 *eccbuf,
+			       u8 *oobbuf, int start, int nbytes);
+int mtd_ooblayout_free(struct mtd_info *mtd, int section,
+		       struct mtd_oob_region *oobfree);
+int mtd_ooblayout_get_databytes(struct mtd_info *mtd, u8 *databuf,
+				const u8 *oobbuf, int start, int nbytes);
+int mtd_ooblayout_set_databytes(struct mtd_info *mtd, const u8 *databuf,
+				u8 *oobbuf, int start, int nbytes);
+int mtd_ooblayout_count_freebytes(struct mtd_info *mtd);
+int mtd_ooblayout_count_eccbytes(struct mtd_info *mtd);
+
+static inline void mtd_set_ooblayout(struct mtd_info *mtd,
+				     const struct mtd_ooblayout_ops *ooblayout)
+{
+	mtd->ooblayout = ooblayout;
+}
+
+static inline int mtd_oobavail(struct mtd_info *mtd, struct mtd_oob_ops *ops)
+{
+	return ops->mode == MTD_OPS_AUTO_OOB ? mtd->oobavail : mtd->oobsize;
+}
 
 int mtd_erase(struct mtd_info *mtd, struct erase_info *instr);
 #ifndef __UBOOT__
@@ -328,6 +394,7 @@ static inline void mtd_sync(struct mtd_info *mtd)
 int mtd_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 int mtd_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len);
 int mtd_is_locked(struct mtd_info *mtd, loff_t ofs, uint64_t len);
+int mtd_block_isreserved(struct mtd_info *mtd, loff_t ofs);
 int mtd_block_isbad(struct mtd_info *mtd, loff_t ofs);
 int mtd_block_markbad(struct mtd_info *mtd, loff_t ofs);
 
@@ -432,38 +499,6 @@ static inline void mtd_erase_callback(struct erase_info *instr)
 }
 #endif
 
-#ifdef __UBOOT__
-/*
- * Debugging macro and defines
- */
-#define MTD_DEBUG_LEVEL0	(0)	/* Quiet   */
-#define MTD_DEBUG_LEVEL1	(1)	/* Audible */
-#define MTD_DEBUG_LEVEL2	(2)	/* Loud    */
-#define MTD_DEBUG_LEVEL3	(3)	/* Noisy   */
-
-#ifdef CONFIG_MTD_DEBUG
-#define pr_debug(args...)	MTDDEBUG(MTD_DEBUG_LEVEL0, args)
-#define MTDDEBUG(n, args...)				\
-	do {						\
-		if (n <= CONFIG_MTD_DEBUG_VERBOSE)	\
-			printk(KERN_INFO args);		\
-	} while(0)
-#else /* CONFIG_MTD_DEBUG */
-#define pr_debug(args...)
-#define MTDDEBUG(n, args...)				\
-	do {						\
-		if (0)					\
-			printk(KERN_INFO args);		\
-	} while(0)
-#endif /* CONFIG_MTD_DEBUG */
-#define pr_info(args...)	MTDDEBUG(MTD_DEBUG_LEVEL0, args)
-#define pr_warn(args...)	MTDDEBUG(MTD_DEBUG_LEVEL0, args)
-#define pr_err(args...)		MTDDEBUG(MTD_DEBUG_LEVEL0, args)
-#define pr_crit(args...)	MTDDEBUG(MTD_DEBUG_LEVEL0, args)
-#define pr_cont(args...)	MTDDEBUG(MTD_DEBUG_LEVEL0, args)
-#define pr_notice(args...)	MTDDEBUG(MTD_DEBUG_LEVEL0, args)
-#endif
- 
 static inline int mtd_is_bitflip(int err) {
 	return err == -EUCLEAN;
 }
@@ -476,11 +511,24 @@ static inline int mtd_is_bitflip_or_eccerr(int err) {
 	return mtd_is_bitflip(err) || mtd_is_eccerr(err);
 }
 
+unsigned mtd_mmap_capabilities(struct mtd_info *mtd);
+
 #ifdef __UBOOT__
 /* drivers/mtd/mtdcore.h */
 int add_mtd_device(struct mtd_info *mtd);
 int del_mtd_device(struct mtd_info *mtd);
 int add_mtd_partitions(struct mtd_info *, const struct mtd_partition *, int);
 int del_mtd_partitions(struct mtd_info *);
+
+int mtd_arg_off(const char *arg, int *idx, loff_t *off, loff_t *size,
+		loff_t *maxsize, int devtype, uint64_t chipsize);
+int mtd_arg_off_size(int argc, char *const argv[], int *idx, loff_t *off,
+		     loff_t *size, loff_t *maxsize, int devtype,
+		     uint64_t chipsize);
+
+/* drivers/mtd/mtdcore.c */
+void mtd_get_len_incl_bad(struct mtd_info *mtd, uint64_t offset,
+			  const uint64_t length, uint64_t *len_incl_bad,
+			  int *truncated);
 #endif
 #endif /* __MTD_MTD_H__ */

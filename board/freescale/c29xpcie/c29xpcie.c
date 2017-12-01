@@ -38,10 +38,10 @@ int checkboard(void)
 
 int board_early_init_f(void)
 {
-	struct fsl_ifc *ifc = (void *)CONFIG_SYS_IFC_ADDR;
+	struct fsl_ifc ifc = {(void *)CONFIG_SYS_IFC_ADDR, (void *)NULL};
 
 	/* Clock configuration to access CPLD using IFC(GPCM) */
-	setbits_be32(&ifc->ifc_gcr, 1 << IFC_GCR_TBCTL_TRN_TIME_SHIFT);
+	setbits_be32(&ifc.gregs->ifc_gcr, 1 << IFC_GCR_TBCTL_TRN_TIME_SHIFT);
 
 	return 0;
 }
@@ -83,9 +83,9 @@ void pci_init_board(void)
 }
 #endif /* ifdef CONFIG_PCI */
 
-#ifdef CONFIG_TSEC_ENET
 int board_eth_init(bd_t *bis)
 {
+#ifdef CONFIG_TSEC_ENET
 	struct fsl_pq_mdio_info mdio_info;
 	struct tsec_info_struct tsec_info[2];
 	int num = 0;
@@ -110,10 +110,10 @@ int board_eth_init(bd_t *bis)
 	fsl_pq_mdio_init(bis, &mdio_info);
 
 	tsec_eth_init(bis, tsec_info, num);
+#endif
 
 	return pci_eth_init(bis);
 }
-#endif
 
 #if defined(CONFIG_OF_BOARD_SETUP)
 void fdt_del_sec(void *blob, int offset)
@@ -122,13 +122,13 @@ void fdt_del_sec(void *blob, int offset)
 
 	while ((nodeoff = fdt_node_offset_by_compat_reg(blob, "fsl,sec-v6.0",
 			CONFIG_SYS_CCSRBAR_PHYS + CONFIG_SYS_FSL_SEC_OFFSET
-			+ offset * 0x20000)) >= 0) {
+			+ offset * CONFIG_SYS_FSL_SEC_IDX_OFFSET)) >= 0) {
 		fdt_del_node(blob, nodeoff);
 		offset++;
 	}
 }
 
-void ft_board_setup(void *blob, bd_t *bd)
+int ft_board_setup(void *blob, bd_t *bd)
 {
 	phys_addr_t base;
 	phys_size_t size;
@@ -138,8 +138,8 @@ void ft_board_setup(void *blob, bd_t *bd)
 
 	ft_cpu_setup(blob, bd);
 
-	base = getenv_bootm_low();
-	size = getenv_bootm_size();
+	base = env_get_bootm_low();
+	size = env_get_bootm_size();
 
 #if defined(CONFIG_PCI)
 	FT_FSL_PCI_SETUP;
@@ -150,5 +150,7 @@ void ft_board_setup(void *blob, bd_t *bd)
 		fdt_del_sec(blob, 1);
 	else if (cpu->soc_ver == SVR_C292)
 		fdt_del_sec(blob, 2);
+
+	return 0;
 }
 #endif

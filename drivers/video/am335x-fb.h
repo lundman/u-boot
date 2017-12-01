@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Hannes Petermaier <oe5hpm@oevsv.at> -
+ * Copyright (C) 2013 Hannes Schmelzer <oe5hpm@oevsv.at> -
  * Bernecker & Rainer Industrieelektronik GmbH - http://www.br-automation.com
  *
  * SPDX-License-Identifier:	GPL-2.0+
@@ -55,9 +55,14 @@ struct am335x_lcdpanel {
 	unsigned int	vsw;		/* Vertical Sync Pulse Width */
 	unsigned int	pxl_clk_div;	/* Pixel clock divider*/
 	unsigned int	pol;		/* polarity of sync, clock signals */
+	unsigned int	pup_delay;	/*
+					 * time in ms after power on to
+					 * initialization of lcd-controller
+					 * (VCC ramp up time)
+					 */
 	unsigned int	pon_delay;	/*
-					 * time in ms for turning on lcd after
-					 * initializing lcd-controller
+					 * time in ms after initialization of
+					 * lcd-controller (pic stabilization)
 					 */
 	void (*panel_power_ctrl)(int);	/* fp for power on/off display */
 };

@@ -20,10 +20,12 @@ struct factorysetcontainer {
 #endif
 	unsigned char serial[MAX_STRING_LENGTH];
 	int version;
+	uchar asn[MAX_STRING_LENGTH];
+	uchar comp_version[MAX_STRING_LENGTH];
 };
 
 int factoryset_read_eeprom(int i2c_addr);
-int factoryset_setenv(void);
+int factoryset_env_set(void);
 extern struct factorysetcontainer factory_dat;
 
 #endif /* __FACTORYSET_H */
