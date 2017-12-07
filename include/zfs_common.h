@@ -66,13 +66,15 @@ struct zfs_filesystem {
 	struct blk_desc *dev_desc;
 };
 
-struct device_s {
-	uint64_t part_length;
+struct zfs_device_s {
+	struct blk_desc *disk;
+	disk_partition_t part_info;
 };
-typedef struct device_s *device_t;
+
+typedef struct zfs_device_s *zfs_device_t;
 
 struct zfs_file {
-	device_t device;
+	zfs_device_t device;
 	uint64_t size;
 	void *data;
 	uint64_t offset;
@@ -85,6 +87,7 @@ struct zfs_dirhook_info {
 	int mtimeset;
 	time_t mtime;
 	time_t mtime2;
+	int case_insensitive;
 };
 
 
@@ -92,13 +95,17 @@ struct zfs_dirhook_info {
 
 struct zfs_filesystem *zfsget_fs(void);
 int zfs_open(zfs_file_t, const char *filename);
-uint64_t zfs_read(zfs_file_t, char *buf, uint64_t len);
-struct zfs_data *zfs_mount(device_t);
+ssize_t zfs_read(zfs_file_t, char *buf, size_t len);
+struct zfs_data *zfs_mount(zfs_device_t);
 int zfs_close(zfs_file_t);
-int zfs_ls(device_t dev, const char *path,
-		   int (*hook) (const char *, const struct zfs_dirhook_info *));
-int zfs_devread(int sector, int byte_offset, int byte_len, char *buf);
-void zfs_set_blk_dev(struct blk_desc *rbdd, disk_partition_t *info);
+int zfs_ls(zfs_device_t dev, const char *path,
+	int (*hook) (const char *, const struct zfs_dirhook_info *, void *data),
+	void *hook_data);
+int zfs_devread(zfs_device_t dev, int sector, int byte_offset, int byte_len,
+	void *buf);
+void zfs_set_blk_dev(zfs_device_t, struct blk_desc *rbdd, disk_partition_t *info);
 void zfs_unmount(struct zfs_data *data);
 int lzjb_decompress(void *, void *, uint32_t, uint32_t);
+int lz4_decompress(void *s_start, void *d_start, uint32_t s_len,uint32_t d_len);
+
 #endif

@@ -33,8 +33,8 @@
 
 void
 fletcher_2_endian(const void *buf, uint64_t size,
-				  zfs_endian_t endian,
-				  zio_cksum_t *zcp)
+		  zfs_endian_t endian,
+		  zio_cksum_t *zcp)
 {
 	const uint64_t *ip = buf;
 	const uint64_t *ipend = ip + (size / sizeof(uint64_t));
@@ -55,7 +55,7 @@ fletcher_2_endian(const void *buf, uint64_t size,
 
 void
 fletcher_4_endian(const void *buf, uint64_t size, zfs_endian_t endian,
-				  zio_cksum_t *zcp)
+		  zio_cksum_t *zcp)
 {
 	const uint32_t *ip = buf;
 	const uint32_t *ipend = ip + (size / sizeof(uint32_t));

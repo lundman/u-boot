@@ -12,8 +12,6 @@
 #ifndef _SYS_UBERBLOCK_IMPL_H
 #define	_SYS_UBERBLOCK_IMPL_H
 
-#define UBMAX(a, b) ((a) > (b) ? (a) : (b))
-
 /*
  * The uberblock version is incremented whenever an incompatible on-disk
  * format change is made to the SPA, DMU, or ZAP.
@@ -36,10 +34,19 @@ typedef struct uberblock {
 	blkptr_t	ub_rootbp;	/* MOS objset_phys_t		*/
 } uberblock_t;
 
-#define	VDEV_UBERBLOCK_SHIFT(as)	UBMAX(as, UBERBLOCK_SHIFT)
-#define	UBERBLOCK_SIZE(as)		(1ULL << VDEV_UBERBLOCK_SHIFT(as))
+#define UBERBLOCK_SIZE          (1ULL << UBERBLOCK_SHIFT)
+#define VDEV_UBERBLOCK_SHIFT    UBERBLOCK_SHIFT
 
 /* Number of uberblocks that can fit in the ring at a given ashift */
 #define UBERBLOCK_COUNT(as) (VDEV_UBERBLOCK_RING >> VDEV_UBERBLOCK_SHIFT(as))
+
+/* XXX Uberblock_phys_t is no longer in the kernel zfs */
+typedef struct uberblock_phys {
+        uberblock_t     ubp_uberblock;
+        char            ubp_pad[UBERBLOCK_SIZE - sizeof (uberblock_t) -
+                                sizeof (zio_eck_t)];
+        zio_eck_t       ubp_zec;
+} uberblock_phys_t;
+
 
 #endif	/* _SYS_UBERBLOCK_IMPL_H */

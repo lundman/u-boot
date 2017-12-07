@@ -188,6 +188,8 @@ typedef struct blkptr {
 #define	BP_GET_LEVEL(bp)		BF64_GET((bp)->blk_prop, 56, 5)
 #define	BP_SET_LEVEL(bp, x)		BF64_SET((bp)->blk_prop, 56, 5, x)
 
+#define BP_IS_EMBEDDED(bp)              BF64_GET((bp)->blk_prop, 39, 1)
+
 #define	BP_GET_PROP_BIT_61(bp)		BF64_GET((bp)->blk_prop, 61, 1)
 #define	BP_SET_PROP_BIT_61(bp, x)	BF64_SET((bp)->blk_prop, 61, 1, x)
 
@@ -249,6 +251,22 @@ typedef struct blkptr {
 		(zcp)->zc_word[2] = w2;					\
 		(zcp)->zc_word[3] = w3;					\
 	}
+
+#define BPE_GET_ETYPE(bp)       BP_GET_CHECKSUM(bp)
+#define BPE_GET_LSIZE(bp)							\
+	BF64_GET_SB((bp)->blk_prop, 0, 25, 0, 1)
+#define BPE_GET_PSIZE(bp)							\
+	BF64_GET_SB((bp)->blk_prop, 25, 7, 0, 1)
+
+typedef enum bp_embedded_type {
+	BP_EMBEDDED_TYPE_DATA,
+	NUM_BP_EMBEDDED_TYPES
+} bp_embedded_type_t;
+
+#define BPE_NUM_WORDS   14
+#define BPE_PAYLOAD_SIZE        (BPE_NUM_WORDS * sizeof(grub_uint64_t))
+#define BPE_IS_PAYLOADWORD(bp, wp)								\
+	((wp) != &(bp)->blk_prop && (wp) != &(bp)->blk_birth)
 
 #define	BP_IDENTITY(bp)		(&(bp)->blk_dva[0])
 #define	BP_IS_GANG(bp)		DVA_GET_GANG(BP_IDENTITY(bp))

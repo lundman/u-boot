@@ -57,8 +57,8 @@ typedef struct zap_leaf_phys {
 	 * zap_leaf_chunk structures.  These structures are accessed
 	 * with the ZAP_LEAF_CHUNK() macro.
 	 */
-
-	uint16_t l_hash[1];
+	uint16_t l_hash[0];
+	uint64_t l_entries[0];
 } zap_leaf_phys_t;
 
 typedef union zap_leaf_chunk {

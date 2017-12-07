@@ -102,13 +102,13 @@ SHA256Transform(uint32_t *H, const uint8_t *cp)
 
 void
 zio_checksum_SHA256(const void *buf, uint64_t size,
-					zfs_endian_t endian, zio_cksum_t *zcp)
+		    zfs_endian_t endian, zio_cksum_t *zcp)
 {
 	uint32_t H[8] = { 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
 					  0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19 };
 	uint8_t pad[128];
-	unsigned padsize = size & 63;
-	unsigned i;
+	unsigned int padsize = size & 63;
+	unsigned int i;
 
 	for (i = 0; i < size - padsize; i += 64)
 		SHA256Transform(H, (uint8_t *)buf + i);
@@ -126,11 +126,11 @@ zio_checksum_SHA256(const void *buf, uint64_t size,
 		SHA256Transform(H, pad + i);
 
 	zcp->zc_word[0] = cpu_to_zfs64((uint64_t)H[0] << 32 | H[1],
-										endian);
+				       endian);
 	zcp->zc_word[1] = cpu_to_zfs64((uint64_t)H[2] << 32 | H[3],
-										endian);
+				       endian);
 	zcp->zc_word[2] = cpu_to_zfs64((uint64_t)H[4] << 32 | H[5],
-										endian);
+				       endian);
 	zcp->zc_word[3] = cpu_to_zfs64((uint64_t)H[6] << 32 | H[7],
-										endian);
+				       endian);
 }

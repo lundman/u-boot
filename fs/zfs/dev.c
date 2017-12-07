@@ -8,24 +8,24 @@
  * SPDX-License-Identifier:	GPL-2.0+
  */
 
-
 #include <common.h>
 #include <config.h>
 #include <fs_internal.h>
 #include <zfs_common.h>
 
-static struct blk_desc *zfs_blk_desc;
-static disk_partition_t *part_info;
-
-void zfs_set_blk_dev(struct blk_desc *rbdd, disk_partition_t *info)
+void zfs_set_blk_dev(zfs_device_t dev, struct blk_desc *rbdd,
+		     disk_partition_t *info)
 {
-	zfs_blk_desc = rbdd;
-	part_info = info;
+	dev->disk = rbdd;
+	memcpy(&dev->part_info, info, sizeof(dev->part_info));
 }
 
 /* err */
-int zfs_devread(int sector, int byte_offset, int byte_len, char *buf)
+int zfs_devread(zfs_device_t dev, int sector, int byte_offset, int byte_len,
+		void *buf)
 {
-	return fs_devread(zfs_blk_desc, part_info, sector, byte_offset,
-			  byte_len, buf);
+	debug("%s: dev %d sector 0x%x len 0x%x (part start %lu)\n", __func__,
+	      dev->disk->devnum, sector, byte_len, dev->part_info.start);
+	return !(fs_devread(dev->disk, &dev->part_info,
+			sector, byte_offset, byte_len, buf));
 }

@@ -40,11 +40,10 @@ static int do_zfs_load(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]
 	ulong addr = 0;
 	disk_partition_t info;
 	struct blk_desc *dev_desc;
-	char buf[12];
 	unsigned long count;
 	const char *addr_str;
 	struct zfs_file zfile;
-	struct device_s vdev;
+	struct zfs_device_s vdev;
 
 	if (argc < 3)
 		return CMD_RET_USAGE;
@@ -89,8 +88,7 @@ static int do_zfs_load(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]
 		filename, argv[1], dev,
 		part ? ':' : ' ', part ? part + '0' : ' ');
 
-	zfs_set_blk_dev(dev_desc, &info);
-	vdev.part_length = info.size;
+	zfs_set_blk_dev(&vdev, dev_desc, &info);
 
 	memset(&zfile, 0, sizeof(zfile));
 	zfile.device = &vdev;
@@ -121,10 +119,10 @@ static int do_zfs_load(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]
 }
 
 
-int zfs_print(const char *entry, const struct zfs_dirhook_info *data)
+int zfs_print(const char *entry, const struct zfs_dirhook_info *data, void *arg)
 {
 	printf("%s %s\n",
-		   data->dir ? "<DIR> " : "		 ",
+		   data->dir ? "<DIR> " : "      ",
 		   entry);
 	return 0; /* 0 continue, 1 stop */
 }
@@ -133,27 +131,27 @@ int zfs_print(const char *entry, const struct zfs_dirhook_info *data)
 
 static int do_zfs_ls(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[])
 {
-	const char *filename = "/";
+	const char *filename = "/@/";
 	int part;
 	struct blk_desc *dev_desc;
 	disk_partition_t info;
-	struct device_s vdev;
+	struct zfs_device_s vdev;
 
 	if (argc < 2)
 		return cmd_usage(cmdtp);
 
 	if (argc == 4)
 		filename = argv[3];
+	else
+		printf("zfsls %s %s %s\n", argv[1], argv[2], filename);
 
 	part = blk_get_device_part_str(argv[1], argv[2], &dev_desc, &info, 1);
 	if (part < 0)
 		return 1;
 
-	zfs_set_blk_dev(dev_desc, &info);
-	vdev.part_length = info.size;
-
+	zfs_set_blk_dev(&vdev, dev_desc, &info);
 	zfs_ls(&vdev, filename,
-		   zfs_print);
+		zfs_print, NULL);
 
 	return 0;
 }
